@@ -1,0 +1,1423 @@
+/* =============================================================================
+   DARK MODE — dashboards
+   Toggle class: body.dm-active
+   Neon palette:
+     --neon:       #00e8ff   (primary cyan neon)
+     --neon-dim:   #4ab8cc   (softer cyan for secondary text)
+     --neon-mute:  #1e6a88   (muted cyan for labels)
+     --neon-deep:  #0e3a55   (very dim, placeholders)
+     --bg-void:    #020609   (near-black body)
+     --bg-base:    #060e1c   (card background)
+     --bg-deep:    #03080f   (inset / code areas)
+     --border:     rgba(0,232,255,0.12)  (subtle card edges)
+============================================================================= */
+
+/* -- Override all neumorphic shadow variables for dark mode -- */
+/* This one block fixes the white glow on profile, period buttons,           */
+/* detail cards, edit/delete buttons, search bar, screener box — everything. */
+
+body.dm-active {
+    --shadow-dark:   rgba(0, 0, 0, 0.6);
+    --shadow-light:  rgba(0, 232, 255, 0.08);
+    --shadow-card:   8px 8px 24px rgba(0,0,0,0.6),  -6px -6px 18px rgba(0,232,255,0.06);
+    --shadow-card-h: 12px 12px 32px rgba(0,0,0,0.7), -8px -8px 24px rgba(0,232,255,0.1);
+    --shadow-btn:    4px 4px 12px rgba(0,0,0,0.55),  -4px -4px 12px rgba(0,232,255,0.07);
+    --shadow-btn-h:  6px 6px 18px rgba(0,0,0,0.65),  -6px -6px 18px rgba(0,232,255,0.12);
+    --shadow-inset:  inset 4px 4px 10px rgba(0,0,0,0.5), inset -4px -4px 10px rgba(0,232,255,0.06);
+}
+
+/* Navbar border that also uses a white highlight */
+
+body.dm-active .navbar {
+    border-bottom-color: rgba(0, 232, 255, 0.12);
+}
+
+/* Profile icon — gradient was dark navy/accent, keep it cyan-tinted */
+
+body.dm-active .profile-icon {
+    background: linear-gradient(145deg, #03080f, #0a3a5a);
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.6), 0 0 8px rgba(0,232,255,0.2);
+}
+
+
+/* -- Toggle button -- */
+.dm-toggle {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background-color: #FFD54F;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+    margin-right: -590px;
+    transition: background-color 700ms ease, box-shadow 700ms ease;
+}
+
+.dm-toggle svg {
+    width: 18px;
+    height: 18px;
+    position: absolute;
+    transition: transform 600ms ease, opacity 600ms ease;
+}
+
+/* Sun — visible in light mode */
+.dm-sun {
+    fill: white;
+    stroke: white;
+    stroke-width: 25;
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 3px rgba(255, 179, 0, 0.6));
+}
+
+/* Moon — hidden in light mode */
+.dm-moon {
+    fill: #333;
+    opacity: 0;
+    transform: rotate(-180deg) scale(0);
+}
+
+/* Active (dark mode) state */
+.dm-toggle.active {
+    background-color: #03080f;
+    box-shadow: 0 0 12px rgba(0, 232, 255, 0.55), 0 0 24px rgba(0, 232, 255, 0.25);
+}
+
+.dm-toggle.active .dm-sun {
+    opacity: 0;
+    transform: rotate(180deg) scale(0);
+}
+
+.dm-toggle.active .dm-moon {
+    fill: #00e8ff;
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 5px rgba(0, 232, 255, 0.95));
+}
+
+/* --- SMOOTH TRANSITIONS on every element that changes colour --- */
+#logoImage {
+    transition: opacity 300ms ease;
+}
+
+#logoImage.fade-out {
+    opacity: 0;
+}
+
+body,
+.navbar,
+.nav-item,
+.profile-trigger,
+.profile-name,
+.dropdown-arrow,
+.profile-dropdown,
+.dropdown-header,
+.dropdown-name,
+.dropdown-email,
+.dropdown-item,
+.search-bar,
+.suggestions-container,
+.suggestion-item,
+.suggestion-name,
+.suggestion-symbol,
+.content-card,
+.content-card p,
+.stock-details-card,
+.back-button,
+.stock-header,
+.stock-info .stock-name,
+.stock-info .stock-symbol,
+.current-price,
+.period-btn,
+.chart-container,
+.range-slider-container,
+.range-slider-label,
+.range-slider-header,
+.range-slider-track,
+.range-slider-marker,
+.range-value,
+.detail-card,
+.detail-label,
+.detail-value,
+.modal,
+.modal-header,
+.modal-subheader,
+.form-group label,
+.form-group input,
+.modal-btn-secondary,
+.holdings-list-card,
+.holdings-list-header,
+.holdings-list-title,
+.sort-button,
+.holding-item,
+.holding-name,
+.holding-details,
+.holding-quantity,
+.holding-invested,
+.toast,
+.toast-title,
+.toast-message,
+.toast-close,
+.screener-title,
+.query-section,
+.query-label,
+.query-textarea,
+.results-section,
+.results-title,
+.results-count,
+.results-table thead,
+.results-table th,
+.results-table td,
+.info-guide,
+.info-guide-header,
+.info-guide-title,
+.info-close-btn,
+.info-section-content,
+.example-query,
+.verification-card,
+.verification-card h2,
+.verification-card p,
+.no-results,
+.loading-spinner,
+.institution-card,
+.institution-name,
+.institution-header,
+.tab-placeholder-card,
+.tab-placeholder-card h2,
+.tab-placeholder-card p,
+.users-table-wrapper,
+.users-table-header,
+.users-table-header h3,
+.users-search,
+.users-table thead,
+.users-table th,
+.users-table td {
+    transition:
+        background-color 500ms ease,
+        background       500ms ease,
+        color            500ms ease,
+        border-color     500ms ease,
+        box-shadow       500ms ease;
+}
+
+/* Body */
+
+body.dm-active {
+    background: linear-gradient(135deg, #020609 0%, #040c18 100%);
+}
+
+/* Navbar */
+
+body.dm-active .navbar {
+    background: rgba(2, 6, 9, 0.98);
+    box-shadow: 0 1px 0 rgba(0, 232, 255, 0.2), 0 4px 24px rgba(0, 0, 0, 0.95);
+}
+
+/* Nav items */
+
+body.dm-active .nav-item {
+    color: #4ab8cc;
+}
+
+body.dm-active .nav-item:hover {
+    background: rgba(0, 232, 255, 0.08);
+    color: #00e8ff;
+    box-shadow: inset 0 0 12px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .nav-item.active {
+    background: rgba(0, 232, 255, 0.1);
+    color: #00e8ff;
+    box-shadow: inset 0 0 16px rgba(0, 232, 255, 0.12), 0 0 10px rgba(0, 232, 255, 0.18);
+}
+
+/* Profile */
+
+body.dm-active .profile-trigger {
+    background: rgba(0, 232, 255, 0.06);
+    border: 1px solid rgba(0, 232, 255, 0.15);
+}
+
+body.dm-active .profile-trigger:hover {
+    background: rgba(0, 232, 255, 0.12);
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.18);
+}
+
+body.dm-active .profile-name {
+    color: aqua;
+}
+
+body.dm-active .dropdown-arrow {
+    color: #1e6a88;
+}
+
+body.dm-active .profile-dropdown {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.18);
+    box-shadow: 0 8px 35px rgba(0, 0, 0, 0.9), 0 0 35px rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .dropdown-header {
+    border-bottom-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .dropdown-name {
+    color: #c8f0ff;
+}
+
+body.dm-active .dropdown-email {
+    color: aqua;
+}
+
+body.dm-active .dropdown-item {
+    color: #4ab8cc;
+}
+
+body.dm-active .dropdown-item:hover {
+    background: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .dropdown-item.logout {
+    border-top-color: rgba(0, 232, 255, 0.1);
+}
+
+/* Search bar */
+
+body.dm-active .search-bar {
+    background: #060e1c;
+    color: #c8f0ff;
+    border: 1px solid rgba(0, 232, 255, 0.15);
+    box-shadow: 0 0 20px rgba(0, 232, 255, 0.06), 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+
+body.dm-active .search-bar::placeholder {
+    color: aqua;
+}
+
+body.dm-active .search-bar:focus {
+    border-color: #00e8ff;
+    box-shadow: 0 0 16px rgba(0, 232, 255, 0.45), 0 0 32px rgba(0, 232, 255, 0.2), 0 4px 20px rgba(0, 0, 0, 0.7);
+}
+
+body.dm-active .suggestions-container {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.15);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .suggestion-item {
+    border-bottom-color: rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .suggestion-item:hover {
+    background: rgba(0, 232, 255, 0.05);
+}
+
+body.dm-active .suggestion-name {
+    color: #c8f0ff;
+}
+
+body.dm-active .suggestion-symbol {
+    color: #1e6a88;
+}
+
+/* Content & stock cards */
+
+body.dm-active .content-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .content-card p {
+    color: aqua;
+}
+body.dm-active .content-card h2 {
+    color: aqua;
+}
+
+body.dm-active .stock-details-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .back-button {
+    background: rgba(0, 232, 255, 0.07);
+    color: #00e8ff;
+    border: 1px solid rgba(0, 232, 255, 0.22);
+}
+
+body.dm-active .back-button:hover {
+    background: rgba(0, 232, 255, 0.14);
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.32);
+}
+
+body.dm-active .stock-header {
+    border-bottom-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .stock-info .stock-name {
+    color: #c8f0ff;
+}
+
+body.dm-active .stock-info .stock-symbol {
+    color: aqua;
+}
+
+body.dm-active .current-price {
+    color: #c8f0ff;
+}
+
+/* Period buttons */
+
+body.dm-active .period-btn {
+    background: #060e1c;
+    border-color: rgba(0, 232, 255, 0.18);
+    color: #2a8aaa;
+}
+
+body.dm-active .period-btn:hover {
+    border-color: #00e8ff;
+    color: #00e8ff;
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.3), 0 0 20px rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .period-btn.active {
+    background: rgba(0, 232, 255, 0.1);
+    border-color: #00e8ff;
+    color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.45), 0 0 28px rgba(0, 232, 255, 0.2);
+}
+
+/* Chart & sliders */
+
+body.dm-active .chart-container {
+    background: #03080f;
+}
+
+body.dm-active .range-slider-container {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.1);
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.65), 0 0 18px rgba(0, 232, 255, 0.05);
+}
+
+body.dm-active .range-slider-label {
+    color: aqua;
+}
+
+body.dm-active .range-slider-header {
+    color: #1e6a88;
+}
+
+body.dm-active .range-slider-track {
+    background: #0a2a42;
+}
+
+body.dm-active .range-slider-marker {
+    background: #060e1c;
+}
+
+body.dm-active .range-value {
+    color: #4ab8cc;
+}
+
+/* Detail cards */
+
+body.dm-active .detail-card {
+    background: #03080f;
+    border: 1px solid rgba(0, 232, 255, 0.07);
+    border-left: 4px solid aqua;
+}
+
+body.dm-active .detail-label {
+    color: aqua;
+}
+
+body.dm-active .detail-value {
+    color: #c8f0ff;
+}
+
+/* Modal */
+
+body.dm-active .modal {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.22);
+    box-shadow: 0 10px 50px rgba(0, 0, 0, 0.95), 0 0 50px rgba(0, 232, 255, 0.13), 0 0 90px rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .modal-header {
+    color: #c8f0ff;
+}
+
+body.dm-active .modal-subheader {
+    color: aqua;
+}
+
+body.dm-active .form-group label {
+    color: #4ab8cc;
+}
+
+body.dm-active .form-group input {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.2);
+    color: #c8f0ff;
+}
+
+body.dm-active .form-group input:focus {
+    border-color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.4);
+}
+
+body.dm-active .modal-btn-secondary {
+    background: rgba(0, 232, 255, 0.06);
+    color: #4ab8cc;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .modal-btn-secondary:hover {
+    background: rgba(0, 232, 255, 0.12);
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.22);
+}
+
+/* Holdings */
+
+body.dm-active .holdings-list-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .holdings-list-header {
+    border-bottom-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .holdings-list-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .sort-button {
+    background: rgba(0, 232, 255, 0.05);
+    color: #2a8aaa;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .sort-button:hover {
+    background: rgba(0, 232, 255, 0.11);
+    color: #00e8ff;
+    box-shadow: 0 0 9px rgba(0, 232, 255, 0.22);
+}
+
+body.dm-active .holding-item {
+    border-bottom-color: rgba(0, 232, 255, 0.06);
+    border-left: 4px solid aqua;
+}
+
+body.dm-active .holding-item:hover {
+    background: rgba(0, 232, 255, 0.04);
+}
+
+body.dm-active .holding-name {
+    color: #c8f0ff;
+}
+
+body.dm-active .holding-details {
+    color: aqua;
+}
+
+body.dm-active .holding-quantity,
+body.dm-active .holding-invested {
+    color: aqua;
+}
+
+/* Toast */
+
+body.dm-active .toast {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.2);
+    box-shadow: 0 4px 28px rgba(0, 0, 0, 0.85), 0 0 28px rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .toast-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .toast-message {
+    color: aqua;
+}
+
+body.dm-active .toast-close {
+    color: aqua;
+}
+
+body.dm-active .toast-close:hover {
+    background: rgba(0, 232, 255, 0.07);
+    color: #4ab8cc;
+}
+
+/* Screener */
+
+body.dm-active .screener-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .query-section {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: 0 2px 18px rgba(0, 0, 0, 0.65), 0 0 22px rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .query-label {
+    color: #4ab8cc;
+}
+
+body.dm-active .query-textarea {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.2);
+    color: #c8f0ff;
+}
+
+body.dm-active .query-textarea:focus {
+    border-color: #00e8ff;
+    box-shadow: 0 0 16px rgba(0, 232, 255, 0.4);
+}
+
+/* Results section */
+
+body.dm-active .results-section {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: 0 2px 18px rgba(0, 0, 0, 0.65), 0 0 22px rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .results-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .results-count {
+    background: rgba(0, 232, 255, 0.07);
+    color: #2a8aaa;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .results-table thead {
+    background: #03080f;
+}
+
+body.dm-active .results-table th {
+    color: #4ab8cc;
+    border-bottom-color: rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .results-table td {
+    color: #2a8aaa;
+    border-bottom-color: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .results-table tbody tr:hover {
+    background: rgba(0, 232, 255, 0.03);
+}
+
+/* Info guide */
+
+body.dm-active .info-guide {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.2);
+    box-shadow: 0 10px 50px rgba(0, 0, 0, 0.95), 0 0 50px rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .info-guide-header {
+    border-bottom-color: rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .info-guide-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .info-close-btn {
+    background: rgba(0, 232, 255, 0.06);
+    color: #2a8aaa;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .info-close-btn:hover {
+    background: rgba(0, 232, 255, 0.12);
+    color: #00e8ff;
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.28);
+}
+
+body.dm-active .info-section-content {
+    color: #2a8aaa;
+}
+body.dm-active .info-section-title {
+    color: aqua;
+}
+
+body.dm-active .example-query {
+    background: #03080f;
+    color: #4ab8cc;
+    border-left-color: #00e8ff;
+    box-shadow: -3px 0 14px rgba(0, 232, 255, 0.18);
+}
+
+/* Verification card */
+
+body.dm-active .verification-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.18);
+    box-shadow: 0 10px 45px rgba(0, 0, 0, 0.9), 0 0 45px rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .verification-card h2 {
+    color: #c8f0ff;
+}
+
+body.dm-active .verification-card p {
+    color: #1e6a88;
+}
+
+/* Misc */
+
+body.dm-active .no-results {
+    color: #0e3a55;
+}
+
+body.dm-active .loading-spinner {
+    color: #00e8ff;
+    filter: drop-shadow(0 0 6px rgba(0, 232, 255, 0.75));
+}
+
+/* ─── Institution cards (approvals tab) ─────────────────────────────────── */
+
+body.dm-active .institution-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.15);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .institution-card:hover {
+    border-color: rgba(0, 232, 255, 0.32);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.85), 0 0 36px rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .institution-header {
+    border-bottom-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .institution-name {
+    color: #c8f0ff;
+}
+
+/* Tab placeholder cards */
+
+body.dm-active .tab-placeholder-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 30px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .tab-placeholder-card h2 {
+    color: #c8f0ff;
+}
+
+body.dm-active .tab-placeholder-card p {
+    color: #1e6a88;
+}
+
+/* Users table */
+
+body.dm-active .users-table-wrapper {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 30px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .users-table-header {
+    border-bottom-color: rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .users-table-header h3 {
+    color: #c8f0ff;
+}
+
+body.dm-active .users-search {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.2);
+    color: #c8f0ff;
+}
+
+body.dm-active .users-search::placeholder {
+    color: #0e3a55;
+}
+
+body.dm-active .users-search:focus {
+    border-color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.38);
+}
+
+body.dm-active .users-table thead {
+    background: #03080f;
+}
+
+body.dm-active .users-table th {
+    color: #4ab8cc;
+    border-bottom-color: rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .users-table td {
+    color: #2a8aaa;
+    border-bottom-color: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .users-table tbody tr:hover {
+    background: rgba(0, 232, 255, 0.04);
+}
+
+/* Confirm overlay & modal */
+
+body.dm-active .confirm-overlay {
+    background: rgba(0, 0, 0, 0.85);
+}
+
+body.dm-active .confirm-modal {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.2);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.9), 0 0 50px rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .confirm-icon {
+    background: rgba(231, 76, 60, 0.12);
+    border: 1px solid rgba(231, 76, 60, 0.25);
+}
+
+body.dm-active .confirm-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .confirm-body {
+    color: #1e6a88;
+}
+
+body.dm-active .confirm-username {
+    color: #c8f0ff;
+    background: #03080f;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .confirm-warning {
+    color: #ff6b6b;
+}
+
+body.dm-active .confirm-cancel {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.18);
+    color: #4ab8cc;
+}
+
+body.dm-active .confirm-cancel:hover {
+    border-color: rgba(0, 232, 255, 0.4);
+    background: rgba(0, 232, 255, 0.06);
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.15);
+}
+
+/* Portfolio summary card  */
+
+body.dm-active .portfolio-summary-card {
+    background: linear-gradient(135deg, #03080f 0%, #060e1c 100%);
+    border: 1px solid rgba(0, 232, 255, 0.25);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 35px rgba(0, 232, 255, 0.12), inset 0 1px 0 rgba(0, 232, 255, 0.08);
+}
+
+/* Portfolio holdings card */
+
+body.dm-active .empty-portfolio-text{
+    color: aquamarine;
+}
+
+body.dm-active .empty-portfolio-subtext{
+    color: aquamarine;
+}
+
+body.dm-active .portfolio-holdings-card {
+    background: linear-gradient(135deg, #03080f 0%, #060e1c 100%);
+    border: 1px solid rgba(0, 232, 255, 0.25);
+    box-shadow: 0 4px 25px rgba(0, 0, 0, 0.75), 0 0 35px rgba(0, 232, 255, 0.12), inset 0 1px 0 rgba(0, 232, 255, 0.08);
+}
+
+/* Research card */
+
+body.dm-active .research-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .research-header h2 {
+    color: #00e8ff;
+}
+
+body.dm-active .research-subtitle {
+    color: aqua;
+}
+
+body.dm-active .research-input {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.2);
+    color: #c8f0ff;
+}
+
+body.dm-active .research-input::placeholder {
+    color: aqua;
+}
+
+body.dm-active .research-input:focus {
+    border-color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.38);
+}
+
+body.dm-active .research-btn {
+    background: linear-gradient(135deg, rgba(0, 184, 255, 0.18) 0%, rgba(0, 232, 255, 0.1) 100%);
+    border: 1px solid rgba(0, 232, 255, 0.35);
+    color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.2);
+}
+
+body.dm-active .research-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 184, 255, 0.28) 0%, rgba(0, 232, 255, 0.18) 100%);
+    box-shadow: 0 0 22px rgba(0, 232, 255, 0.35);
+}
+
+/* Chips */
+
+body.dm-active .chip {
+    background: rgba(0, 232, 255, 0.06);
+    border-color: rgba(0, 232, 255, 0.2);
+    color: #4ab8cc;
+}
+
+body.dm-active .chip:hover {
+    background: rgba(0, 232, 255, 0.12);
+    border-color: #00e8ff;
+    color: #00e8ff;
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.22);
+}
+
+/* Answer block */
+
+body.dm-active .answer-label {
+    color: #00e8ff;
+}
+
+body.dm-active .answer-text {
+    color: #c8f0ff;
+}
+
+/* Sources */
+
+body.dm-active .sources-label {
+    color: #4ab8cc;
+}
+
+body.dm-active .source-dot {
+    background: #00e8ff;
+    box-shadow: 0 0 6px rgba(0, 232, 255, 0.7);
+}
+
+body.dm-active .source-item a {
+    color: #00e8ff;
+}
+
+body.dm-active .source-item a:hover {
+    color: #c8f0ff;
+}
+
+/* History */
+
+body.dm-active .history-section {
+    border-top-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .history-label {
+    color: #4ab8cc;
+}
+
+body.dm-active .history-item {
+    background: #03080f;
+    color: #2a8aaa;
+    border: 1px solid rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .history-item:hover {
+    background: rgba(0, 232, 255, 0.07);
+    color: #00e8ff;
+    border-color: rgba(0, 232, 255, 0.18);
+    box-shadow: 0 0 8px rgba(0, 232, 255, 0.12);
+}
+
+/* Info & action buttons */
+
+body.dm-active .info-button {
+    background: rgba(0, 232, 255, 0.1);
+    color: #00e8ff;
+    border: 1px solid rgba(0, 232, 255, 0.3);
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.2);
+}
+
+body.dm-active .info-button:hover {
+    background: rgba(0, 232, 255, 0.18);
+    box-shadow: 0 0 16px rgba(0, 232, 255, 0.4);
+}
+
+body.dm-active .submit-button {
+    background: rgba(0, 232, 255, 0.1);
+    color: #00e8ff;
+    border: 1px solid rgba(0, 232, 255, 0.3);
+}
+
+body.dm-active .submit-button:hover {
+    background: rgba(0, 232, 255, 0.18);
+    box-shadow: 0 4px 16px rgba(0, 232, 255, 0.3);
+}
+
+body.dm-active .add-portfolio-btn {
+    background: rgba(0, 232, 255, 0.1);
+    color: #00e8ff;
+    border: 1px solid rgba(0, 232, 255, 0.25);
+}
+
+body.dm-active .add-portfolio-btn:hover {
+    background: rgba(0, 232, 255, 0.18);
+    box-shadow: 0 0 12px rgba(0, 232, 255, 0.25);
+}
+
+body.dm-active .predict-btn {
+    background: rgba(0, 232, 255, 0.18);
+    box-shadow: 0 0 12px rgba(0, 232, 255, 0.25);
+    color: aqua
+}
+
+body.dm-active .predict-btn:hover {
+    background: rgba(0, 232, 255, 0.14);
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.32);
+}
+/* Predict modal */
+
+body.dm-active .predict-modal-overlay {
+    background: rgba(0, 0, 0, 0.85);
+}
+
+body.dm-active .predict-modal {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.18);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.95), 0 0 50px rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .predict-modal-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .predict-modal-subtitle {
+    color: aqua;
+}
+
+body.dm-active .predict-date-input {
+    background: #436c85;
+    border-color: rgba(0, 232, 255, 0.2);
+    color: #c8f0ff;
+}
+
+body.dm-active .predict-date-input:focus {
+    border-color: #f5576c;
+    box-shadow: 0 0 12px rgba(245, 87, 108, 0.3);
+}
+
+body.dm-active .predict-modal-hint {
+    color: aqua;
+}
+
+body.dm-active .predict-cancel-btn {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.18);
+    color: #4ab8cc;
+}
+
+body.dm-active .predict-cancel-btn:hover {
+    border-color: rgba(0, 232, 255, 0.35);
+    background: rgba(0, 232, 255, 0.06);
+}
+
+/* predict-submit-btn keeps its pink gradient — intentional, not AI slop */
+
+/* Predict results panel */
+
+body.dm-active .predict-results-panel {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.15);
+    box-shadow: 0 4px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+/* predict-panel-header keeps its pink gradient — intentional */
+
+body.dm-active .predict-close-results {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+body.dm-active .predict-close-results:hover {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+body.dm-active .predict-spinner {
+    border-color: rgba(0, 232, 255, 0.12);
+    border-top-color: #f5576c;
+}
+
+body.dm-active .predict-loading-text {
+    color: #4ab8cc;
+}
+
+body.dm-active .predict-loading-sub {
+    color: #1e6a88;
+}
+
+/* Predict highlight cards */
+
+body.dm-active .predict-target-highlight {
+    background: rgba(0, 232, 255, 0.05);
+    border-bottom-color: rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .predict-highlight-card {
+    background: #060e1c;
+}
+
+body.dm-active .predict-highlight-label {
+    color: aqua;
+}
+
+body.dm-active .predict-highlight-value {
+    color: #c8f0ff;
+}
+
+body.dm-active .predict-highlight-sub {
+    color: rgb(0, 238, 255);
+}
+
+body.dm-active .predict-signal-label {
+    color: rgb(0, 238, 255);
+}
+
+body.dm-active .model-metric-pill {
+    color: rgb(0, 238, 255);
+}
+
+/* ─── Backtest compare table ────────────────────────────────────────────── */
+
+body.dm-active .backtest-compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+body.dm-active .backtest-compare-table th {
+    text-align: left;
+    padding: 8px 10px;
+    background: #03080f;
+    color: #4ab8cc;
+    font-weight: 600;
+    border-bottom: 2px solid rgba(0, 232, 255, 0.15);
+}
+
+body.dm-active .backtest-compare-table td {
+    padding: 10px 10px;
+    border-bottom: 1px solid rgba(0, 232, 255, 0.07);
+    color: #c8f0ff;
+}
+
+body.dm-active .backtest-compare-table tr:last-child td {
+    border-bottom: none;
+}
+
+body.dm-active .backtest-compare-table tbody tr:hover {
+    background: rgba(0, 232, 255, 0.04);
+}
+
+body.dm-active .backtest-compare-table .ensemble-row td {
+    background: rgba(0, 232, 255, 0.05);
+    border-top: 1px solid rgba(0, 232, 255, 0.12);
+    font-weight: 600;
+}
+
+body.dm-active .backtest-compare-table .bh-row td {
+    color: #1e6a88;
+    border-top: 1px solid rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .backtest-compare-table .val-pos { color: #2ecc71; }
+body.dm-active .backtest-compare-table .val-neg { color: #ff6b6b; }
+
+/* Low-trades warning banner inside table */
+body.dm-active .backtest-compare-table td[colspan="7"] {
+    background: rgba(255, 224, 130, 0.06);
+    color: #c8a84b;
+    border-top: 2px solid rgba(255, 224, 130, 0.2);
+}
+
+/* -- Ensemble signal table -- */
+
+body.dm-active .ens-signal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+body.dm-active .ens-signal-table th {
+    text-align: left;
+    padding: 8px 10px;
+    background: #03080f;
+    color: #4ab8cc;
+    font-weight: 600;
+    border-bottom: 2px solid rgba(0, 232, 255, 0.15);
+}
+
+body.dm-active .ens-signal-table td {
+    padding: 10px 10px;
+    border-bottom: 1px solid rgba(0, 232, 255, 0.07);
+    color: #2a8aaa;
+}
+
+body.dm-active .ens-signal-table tr:last-child td {
+    border-bottom: none;
+}
+
+body.dm-active .ens-signal-table tbody tr:hover {
+    background: rgba(0, 232, 255, 0.04);
+}
+
+/* -- Ensemble tab prose text -- */
+
+body.dm-active #predict-tab-ensemble p {
+    color: #1e6a88;
+}
+
+/* Signal badges — semantic colors kept, backgrounds darkened */
+
+body.dm-active .signal-badge.BUY  { background: rgba(39, 174, 96, 0.15);  color: #2ecc71; }
+body.dm-active .signal-badge.SELL { background: rgba(231, 76, 60, 0.15);  color: #ff6b6b; }
+body.dm-active .signal-badge.HOLD { background: rgba(243, 156, 18, 0.15); color: #f39c12; }
+body.dm-active .signal-badge.PROPHET-FALLBACK {
+    background: rgba(243, 156, 18, 0.12);
+    color: #f39c12;
+    border-color: rgba(243, 156, 18, 0.35);
+}
+
+body.dm-active .flat-forecast-warn {
+    background: rgba(255, 224, 130, 0.06);
+    border-color: rgba(255, 224, 130, 0.2);
+    color: #c8a84b;
+}
+
+body.dm-active .prophet-fallback-note {
+    background: rgba(255, 248, 230, 0.05);
+    border-left-color: rgba(255, 193, 7, 0.5);
+    color: #c8a84b;
+}
+
+/* Metrics section */
+
+body.dm-active .predict-metrics-section {
+    border-top-color: rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .predict-metrics-title {
+    color: #4ab8cc;
+}
+
+body.dm-active .predict-metric-card {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .predict-metric-label {
+    color: aqua;
+}
+
+body.dm-active .predict-metric-value {
+    color: #c8f0ff;
+}
+
+body.dm-active .predict-metric-desc {
+    color: #00aeff;
+}
+
+/* Checkpoints section */
+
+body.dm-active .predict-checkpoints-section {
+    border-top-color: rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .predict-checkpoint-table th {
+    background: #03080f;
+    color: #4ab8cc;
+    border-bottom-color: rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .predict-checkpoint-table td {
+    color: #2a8aaa;
+    border-bottom-color: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .predict-disclaimer {
+    background: rgba(255, 248, 230, 0.04);
+    border-top-color: rgba(255, 224, 130, 0.15);
+    color: #c8a84b;
+}
+
+/* Model tabs */
+
+body.dm-active .model-tabs {
+    background: #03080f;
+    border-bottom-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .model-tab {
+    color: #1e6a88;
+}
+
+body.dm-active .model-tab:hover {
+    color: #4ab8cc;
+}
+
+body.dm-active .model-tab.active {
+    color: #f5576c;
+    border-bottom-color: #f5576c;
+}
+
+body.dm-active .field-label {
+    color: #4ab8cc;
+}
+
+/* ─── News card ─────────────────────────────────────────────────────────── */
+
+body.dm-active .news-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .news-title {
+    color: #00e8ff;
+}
+
+body.dm-active .news-subtitle {
+    color: #00aeff;
+}
+
+body.dm-active .news-refresh-btn {
+    background: linear-gradient(135deg, rgba(0, 184, 255, 0.18) 0%, rgba(0, 232, 255, 0.1) 100%);
+    border: 1px solid rgba(0, 232, 255, 0.35);
+    color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.2);
+}
+
+body.dm-active .news-refresh-btn:hover {
+    box-shadow: 0 0 22px rgba(0, 232, 255, 0.35);
+}
+
+/* Trend card  */
+
+body.dm-active .trend-card {
+    background: linear-gradient(135deg, #03080f 0%, #060e1c 100%);
+    border: 1px solid rgba(0, 232, 255, 0.25);
+    border-left: 4px solid aqua;
+    box-shadow: 0 0 35px rgba(0, 232, 255, 0.12), inset 0 1px 0 rgba(0, 232, 255, 0.08);
+    color: #c8f0ff;
+}
+
+body.dm-active .trend-mood-badge {
+    background: rgba(0, 232, 255, 0.12);
+    border: 1px solid rgba(0, 232, 255, 0.25);
+    color: #00e8ff;
+}
+
+/* News filter buttons */
+
+body.dm-active .news-filter-btn {
+    background: rgba(0, 232, 255, 0.06);
+    border-color: rgba(0, 232, 255, 0.18);
+    color: #4ab8cc;
+}
+
+body.dm-active .news-filter-btn:hover {
+    background: rgba(0, 232, 255, 0.12);
+    color: #00e8ff;
+    box-shadow: 0 0 10px rgba(0, 232, 255, 0.18);
+}
+
+body.dm-active .news-filter-btn.active {
+    background: rgba(0, 232, 255, 0.12);
+    border-color: #00e8ff;
+    color: #00e8ff;
+    box-shadow: 0 0 12px rgba(0, 232, 255, 0.3);
+}
+
+/* ─── News article cards ────────────────────────────────────────────────── */
+
+body.dm-active .news-article-card {
+    background: #060e1c;
+    border-color: rgba(0, 232, 255, 0.1);
+}
+
+body.dm-active .news-article-card:hover {
+    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.8), 0 0 22px rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .news-article-img {
+    background: #03080f;
+}
+
+body.dm-active .news-article-img-placeholder {
+    background: linear-gradient(135deg, rgba(0, 232, 255, 0.05) 0%, rgba(0, 184, 255, 0.03) 100%);
+}
+
+body.dm-active .news-article-time {
+    color: #00aeff;
+}
+
+body.dm-active .news-article-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .news-article-desc {
+    color: #00aeff;
+}
+
+body.dm-active .news-article-footer {
+    border-top-color: rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .news-source-name {
+    color: #00aeff;
+}
+
+body.dm-active .news-read-link {
+    color: #00e8ff;
+}
+
+body.dm-active .news-read-link:hover {
+    opacity: 0.75;
+}
+
+body.dm-active .news-empty {
+    color: #0f5580;
+}
+
+body.dm-active .predict-panel-header{
+    color:rgb(0, 238, 255)
+}
+
+body.dm-active .predict-loading-sub {
+    color: #157ca5;
+}

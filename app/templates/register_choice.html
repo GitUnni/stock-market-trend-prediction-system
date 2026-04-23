@@ -1,0 +1,138 @@
+{% extends "base1.html" %}
+
+{% block content %}
+<style>
+    body {
+        background-image: url('../static/img/bullmarket.jpeg');
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* Dark overlay for readability */
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        z-index: 0;
+    }
+
+    .container {
+        position: relative;
+        z-index: 1;
+        /* height: 100vh; */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 20px;
+        text-align: center;
+    }
+
+    h2 {
+        font-size: 2.1rem;
+        color: #e6faff;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        text-shadow:
+            0 0 10px rgba(0, 180, 255, 0.8),
+            0 0 20px rgba(0, 180, 255, 0.6);
+        margin-bottom: 10px;
+    }
+
+    /* Base button style */
+    .big-btn {
+        width: 320px;
+        padding: 20px;
+        font-size: 1.4rem;
+        font-weight: bold;
+        text-decoration: none;
+        text-align: center;
+        border-radius: 14px;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(6px);
+        border: 2px solid transparent;
+        box-shadow: 0 0 25px rgba(0,0,0,0.6);
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Green – Customer (Bull) */
+    .customer {
+        color: #baffd9;
+        background: linear-gradient(
+            135deg,
+            rgba(0, 255, 140, 0.25),
+            rgba(0, 180, 100, 0.45)
+        );
+        border-color: rgba(0, 255, 140, 0.7);
+        box-shadow:
+            0 0 25px rgba(0, 255, 140, 0.5),
+            inset 0 0 15px rgba(0, 255, 140, 0.4);
+    }
+
+    .customer:hover {
+        transform: scale(1.08);
+        box-shadow:
+            0 0 40px rgba(0, 255, 140, 0.9),
+            inset 0 0 25px rgba(0, 255, 140, 0.6);
+    }
+
+    /* Red – Institution (Bear) */
+    .institution {
+        color: #ffd6d6;
+        background: linear-gradient(
+            135deg,
+            rgba(255, 60, 60, 0.25),
+            rgba(180, 0, 0, 0.45)
+        );
+        border-color: rgba(255, 60, 60, 0.8);
+        box-shadow:
+            0 0 25px rgba(255, 60, 60, 0.5),
+            inset 0 0 15px rgba(255, 60, 60, 0.4);
+    }
+
+    .institution:hover {
+        transform: scale(1.08);
+        box-shadow:
+            0 0 40px rgba(255, 60, 60, 0.9),
+            inset 0 0 25px rgba(255, 60, 60, 0.6);
+    }
+
+    /* Optional glow sweep animation */
+    .big-btn::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+            120deg,
+            transparent,
+            rgba(255, 255, 255, 0.25),
+            transparent
+        );
+        transition: left 0.6s ease;
+    }
+
+    .big-btn:hover::after {
+        left: 100%;
+    }
+</style>
+
+<div class="container">
+    <h2>Select Registration Type</h2>
+
+    <a href="/register/customer" class="big-btn customer">
+        Customer
+    </a>
+
+    <a href="/register/institution" class="big-btn institution">
+        Financial Institution
+    </a>
+</div>
+{% endblock %}

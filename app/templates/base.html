@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Stock System{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="../static/img/favicon_io/favicon.ico">
+    <style>
+    nav {
+        margin-top: -140px;
+    }
+    h1 {
+            position: relative;
+            font-size: 2.7em;
+            letter-spacing: 2.5px;
+            color: #0e3742;
+            text-transform: uppercase;
+            width: 100%;
+            text-align: center;
+            -webkit-box-reflect: below 1px linear-gradient(transparent, #0004);
+            line-height: 0.70em;
+            outline: none;
+            animation: animate 5s linear forwards;
+        }
+        @keyframes animate {
+            0% {
+                color: #0e3742;
+                text-shadow: none;
+            }
+            10%, 20%, 30%, 40%, 50% {
+                color: #fff;
+                text-shadow: 0 0 10px #03bcf4, 0 0 20px #03bcf4, 0 0 40px #03bcf4, 0 0 80px #03bcf4, 0 0 160px #03bcf4;
+            }
+            15%, 25%, 35%, 45% {
+                color: #0e3742;
+                text-shadow: none;
+            }
+            60%, 100% {
+                color: #fff;
+                text-shadow: 0 0 10px #03bcf4, 0 0 20px #03bcf4, 0 0 40px #03bcf4, 0 0 80px #03bcf4, 0 0 160px #03bcf4;
+            }
+        }
+</style>
+</head>
+<body>
+    <nav>
+        <h1>Stock Market Trend Prediction </h1>
+        <h1>&</h1>
+        <h1>Trading Strategy Backtesting System</h1>
+    </nav>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

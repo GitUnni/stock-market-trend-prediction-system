@@ -1,0 +1,7 @@
+body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    /* background: radial-gradient(circle at top, #1b1f2a, #0b0e14); */
+    /* color: #e5e7eb; */
+}
