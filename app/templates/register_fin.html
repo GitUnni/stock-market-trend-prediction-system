@@ -1,0 +1,287 @@
+{% extends "base1.html" %}
+{% block title %}Institution Registration{% endblock %}
+
+{% block content %}
+<style>
+    :root {
+        --size: 1.5rem;
+    }
+
+    body {
+        background-image: url('../static/img/bullphone.jpg');
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+        min-height: 100vh;
+        transition: background 0.5s ease;
+        overflow: hidden;
+    }
+
+    body.dark-mode {
+        background-image: none;
+        background-color: #000;
+    }
+
+    /* Center wrapper */
+    .register-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+    }
+
+    /* Glass card */
+    .register-card {
+        background: rgba(0, 0, 0, 0.25);
+        backdrop-filter: blur(6px);
+        padding: 25px 30px;
+        width: 400px;
+        border-radius: 14px;
+        box-shadow: 0 0 25px rgba(0, 180, 255, 0.5);
+        transition: all 0.5s ease;
+        color: #e6f7ff;
+    }
+
+    body.dark-mode .register-card {
+        background: rgba(0, 0, 0, 0.85);
+        box-shadow: 0 0 25px rgba(255, 255, 255, 0.25);
+        color: #fff;
+    }
+
+    .register-card h3 {
+        margin-top: 0;
+        margin-bottom: 15px;
+        text-align: center;
+        text-shadow: 0 0 8px rgba(0, 180, 255, 0.8);
+    }
+
+    body.dark-mode .register-card h3 {
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    }
+
+    .register-card input {
+        width: 100%;
+        padding: 13px;
+        margin-bottom: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 180, 255, 0.6);
+        border-radius: 6px;
+        color: #fff;
+        outline: none;
+        transition: all 0.4s ease;
+    }
+
+    body.dark-mode .register-card input {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.6);
+    }
+
+    .register-card input::placeholder {
+        color: #bfe9ff;
+    }
+
+    body.dark-mode .register-card input::placeholder {
+        color: #ccc;
+    }
+
+    .register-card input:focus {
+        border-color: #4fd1ff;
+        box-shadow: 0 0 8px rgba(79, 209, 255, 0.8);
+    }
+
+    body.dark-mode .register-card input:focus {
+        border-color: #fff;
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    }
+
+    .register-card button {
+        width: 32em;
+        padding: 12px;
+        background: linear-gradient(135deg, #00b4ff, #0072ff);
+        border: none;
+        border-radius: 6px;
+        color: #fff;
+        font-weight: bold;
+        cursor: pointer;
+        box-shadow: 0 0 10px rgba(0, 180, 255, 0.7);
+        transition: all 0.5s ease;
+    }
+
+    body.dark-mode .register-card button {
+        background: linear-gradient(135deg, #fff, #ccc);
+        color: #000;
+    }
+
+    /* Password eye */
+    .password-wrapper {
+        position: relative;
+    }
+
+    .eye {
+        position: absolute;
+        right: 0.1rem;
+        top: 43%;
+        width: var(--size);
+        height: var(--size);
+        border: 2px solid #4fd1ff;
+        border-radius: calc(var(--size) / 1.5) 0;
+        transform: translateY(-50%) rotate(45deg);
+        cursor: pointer;
+        transition: border-color 0.5s ease;
+    }
+
+    body.dark-mode .eye {
+        border-color: #fff;
+    }
+
+    .eye:before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 60%;
+        height: 60%;
+        border-radius: 50%;
+        background: #4fd1ff;
+    }
+
+    body.dark-mode .eye:before {
+        background: #fff;
+    }
+
+    /* Spotlight */
+    .spotlight-overlay {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+        z-index: 5;
+    }
+
+    .spotlight-overlay.active {
+        opacity: 1;
+    }
+
+    body.dark-mode .spotlight-beam {
+        opacity: 1;
+        border-width: 60px 0 60px 500px;
+        border-color: transparent transparent transparent rgba(255, 255, 0, 0.6);
+    }
+
+    .spotlight-beam {
+        position: absolute;
+        width: 0;
+        height: 0;
+        border-style: solid;
+        border-width: 0;
+        opacity: 0;
+        transition: all 0.5s ease;
+        right: 1rem;  /* Same as eye position */
+        top: 42%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        z-index: 5;
+    }
+</style>
+
+<div class="spotlight-overlay" id="spotlightOverlay">
+</div>
+
+<div class="register-wrapper">
+    <div class="register-card">
+        <h3>Register as Financial Institution</h3>
+        
+        <div class="error-message" id="errorMessage"></div>
+
+        <form id="registerForm">
+            <input type="text" name="name" placeholder="Contact Person Name" required>
+            <input type="text" name="institution_name" placeholder="Institution Name" required>
+            <input type="email" name="email" placeholder="Institution Email" required>
+            <input type="text" name="registration_number" placeholder="Registration Number" required>
+            <input type="text" name="country" placeholder="Country" required>
+            <input type="text" name="contact_person" placeholder="Primary Contact Person" required>
+            
+            <div class="password-wrapper">
+                <input type="password" id="password" name="password" placeholder="Password (min 8 characters)" minlength="8" required>
+                <div class="spotlight-beam"></div>
+                <div class="eye" id="togglePassword"></div>
+            </div>
+
+            <input type="text" name="contact_phone" placeholder="Phone Number" required>
+            <button type="submit" id="submitBtn">Register</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    const togglePassword = document.getElementById("togglePassword");
+    const passwordInput = document.getElementById("password");
+    const body = document.body;
+    const spotlightOverlay = document.getElementById("spotlightOverlay");
+    const registerForm = document.getElementById("registerForm");
+    const errorMessage = document.getElementById("errorMessage");
+    const submitBtn = document.getElementById("submitBtn");
+
+    togglePassword.addEventListener("click", () => {
+        const type = passwordInput.type === "password" ? "text" : "password";
+        passwordInput.type = type;
+
+        body.classList.toggle("dark-mode");
+        spotlightOverlay.classList.toggle("active");
+    });
+
+    registerForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        // Disable submit button
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Registering...";
+        
+        // Hide previous error messages
+        errorMessage.style.display = "none";
+        
+        // Get form data
+        const formData = new FormData(registerForm);
+        const data = {
+            name: formData.get("name"),
+            email: formData.get("email"),
+            password: formData.get("password"),
+            institution_name: formData.get("institution_name"),
+            registration_number: formData.get("registration_number"),
+            country: formData.get("country"),
+            contact_person: formData.get("contact_person"),
+            contact_phone: formData.get("contact_phone")
+        };
+        
+        try {
+            const response = await fetch("/auth/register/institution", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(data)
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                // Registration successful - redirect to login page
+                window.location.href = "/login?message=Registration successful! Please login.";
+            } else {
+                // Show error message
+                errorMessage.textContent = result.detail || "Registration failed. Please try again.";
+                errorMessage.style.display = "block";
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Register";
+            }
+        } catch (error) {
+            console.error("Error:", error);
+            errorMessage.textContent = "An error occurred. Please try again.";
+            errorMessage.style.display = "block";
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Register";
+        }
+    });
+</script>
+{% endblock %}

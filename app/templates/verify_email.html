@@ -1,0 +1,414 @@
+{% extends "base1.html" %}
+{% block title %}Verify Email{% endblock %}
+
+{% block content %}
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .verification-container {
+        background: white;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        max-width: 450px;
+        width: 90%;
+    }
+
+    .verification-container h2 {
+        color: #333;
+        margin-bottom: 10px;
+        text-align: center;
+    }
+
+    .verification-container p {
+        color: #666;
+        margin-bottom: 30px;
+        text-align: center;
+        line-height: 1.6;
+    }
+
+    .email-display {
+        background: #f5f5f5;
+        padding: 10px;
+        border-radius: 5px;
+        text-align: center;
+        margin-bottom: 20px;
+        color: #667eea;
+        font-weight: bold;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        color: #333;
+        margin-bottom: 8px;
+        font-weight: bold;
+    }
+
+    .form-group input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        font-size: 16px;
+        text-align: center;
+        letter-spacing: 5px;
+        font-weight: bold;
+        box-sizing: border-box;
+    }
+
+    .form-group input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+
+    .submit-btn {
+        width: 100%;
+        padding: 15px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        transition: transform 0.2s;
+    }
+
+    .submit-btn:hover {
+        transform: translateY(-2px);
+    }
+
+    .submit-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .resend-link {
+        text-align: center;
+        margin-top: 20px;
+        color: #666;
+        font-size: 14px;
+    }
+
+    .resend-link a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .resend-link a:hover {
+        text-decoration: underline;
+    }
+
+    .message {
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        text-align: center;
+        display: none;
+    }
+
+    .success-message {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+
+    .error-message {
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+
+    .info-message {
+        background: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+    }
+
+    .back-link {
+        text-align: center;
+        margin-top: 15px;
+    }
+
+    .back-link a {
+        color: #667eea;
+        text-decoration: none;
+        font-size: 14px;
+    }
+
+    .back-link a:hover {
+        text-decoration: underline;
+    }
+</style>
+
+<div class="verification-container">
+    <h2>Verify Your Email</h2>
+    <p>Enter the 6-digit verification code sent to:</p>
+    <div class="email-display" id="emailDisplay">Loading...</div>
+
+    <div class="message success-message" id="successMessage"></div>
+    <div class="message error-message" id="errorMessage"></div>
+    <div class="message info-message" id="infoMessage"></div>
+
+    <form id="verificationForm">
+        <div class="form-group">
+            <label for="code">Verification Code</label>
+            <input 
+                type="text" 
+                id="code" 
+                name="code" 
+                maxlength="6" 
+                pattern="[0-9]{6}" 
+                placeholder="000000"
+                required
+                autocomplete="off">
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">Verify Email</button>
+    </form>
+
+    <div class="resend-link">
+        Didn't receive the code? 
+        <a id="resendBtn">Resend Code</a>
+    </div>
+
+    <div class="back-link">
+        <a href="#" id="backLink">← Back to Dashboard</a>
+    </div>
+</div>
+
+<script>
+    let userEmail = null;
+    let userRole = null;
+
+    // Get user email and role from token
+    function getUserEmail() {
+        const token = localStorage.getItem('access_token');
+        
+        if (!token) {
+            window.location.href = '/login';
+            return null;
+        }
+
+        try {
+            const tokenParts = token.split('.');
+            const payload = JSON.parse(atob(tokenParts[1]));
+            
+            // Store role for later use
+            userRole = payload.role;
+            
+            // Update back link based on role
+            const backLink = document.getElementById('backLink');
+            if (userRole === 'CUSTOMER') {
+                backLink.href = '/dashboard/customer';
+            } else if (userRole === 'INSTITUTION') {
+                backLink.href = '/dashboard/institution';
+            } else if (userRole === 'ADMIN') {
+                backLink.href = '/dashboard/admin';
+            } else {
+                backLink.href = '/dashboard/customer';
+            }
+            
+            // Get email from token (you need to include email in the JWT when creating it)
+            // For now, we'll need to make an API call or store email separately
+            // So the workaround is by storing email in localStorage during login
+            const email = localStorage.getItem('user_email');
+            return email;
+        } catch (error) {
+            console.error('Error getting email:', error);
+            return null;
+        }
+    }
+
+    // Send verification code
+    async function sendVerificationCode() {
+        const email = userEmail;
+        
+        if (!email) {
+            showError('Email not found. Please login again.');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/auth/request-verification-code?email=${encodeURIComponent(email)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showInfo('Verification code sent to your email!');
+                
+                // In development, show the code
+                if (result.dev_code) {
+                    console.log('Development Code:', result.dev_code);
+                    showInfo(`Development Mode - Your code is: ${result.dev_code}`);
+                }
+            } else {
+                showError(result.detail || 'Failed to send verification code');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showError('An error occurred. Please try again.');
+        }
+    }
+
+    // Verify email with code
+    async function verifyEmail(code) {
+        const email = userEmail;
+        
+        if (!email) {
+            showError('Email not found. Please login again.');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/auth/verify-email?email=${encodeURIComponent(email)}&code=${code}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showSuccess('Email verified successfully! Redirecting...');
+                
+                // Update token with new one that has email_verified = true
+                localStorage.setItem('access_token', result.access_token);
+                
+                // Decode the new token to get the role
+                const tokenParts = result.access_token.split('.');
+                const payload = JSON.parse(atob(tokenParts[1]));
+                const role = payload.role;
+                
+                // Redirect to appropriate dashboard based on role
+                setTimeout(() => {
+                    if (role === 'CUSTOMER') {
+                        window.location.href = '/dashboard/customer';
+                    } else if (role === 'INSTITUTION') {
+                        window.location.href = '/dashboard/institution';
+                    } else if (role === 'ADMIN') {
+                        window.location.href = '/dashboard/admin';
+                    } else {
+                        // Fallback
+                        window.location.href = '/dashboard/customer';
+                    }
+                }, 2000);
+            } else {
+                showError(result.detail || 'Invalid verification code');
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').textContent = 'Verify Email';
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showError('An error occurred. Please try again.');
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').textContent = 'Verify Email';
+        }
+    }
+
+    // Form submission
+    document.getElementById('verificationForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const code = document.getElementById('code').value;
+        
+        if (code.length !== 6) {
+            showError('Please enter a 6-digit code');
+            return;
+        }
+
+        // Disable submit button
+        document.getElementById('submitBtn').disabled = true;
+        document.getElementById('submitBtn').textContent = 'Verifying...';
+        
+        // Hide previous messages
+        hideMessages();
+        
+        await verifyEmail(code);
+    });
+
+    // Resend code
+    document.getElementById('resendBtn').addEventListener('click', async () => {
+        hideMessages();
+        showInfo('Sending verification code...');
+        await sendVerificationCode();
+    });
+
+    // Only allow numbers in code input
+    document.getElementById('code').addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/[^0-9]/g, '');
+    });
+
+    // Message functions
+    function showSuccess(message) {
+        hideMessages();
+        const elem = document.getElementById('successMessage');
+        elem.textContent = message;
+        elem.style.display = 'block';
+    }
+
+    function showError(message) {
+        hideMessages();
+        const elem = document.getElementById('errorMessage');
+        elem.textContent = message;
+        elem.style.display = 'block';
+    }
+
+    function showInfo(message) {
+        hideMessages();
+        const elem = document.getElementById('infoMessage');
+        elem.textContent = message;
+        elem.style.display = 'block';
+    }
+
+    function hideMessages() {
+        document.getElementById('successMessage').style.display = 'none';
+        document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('infoMessage').style.display = 'none';
+    }
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', async () => {
+        // Get user email
+        userEmail = getUserEmail();
+        
+        if (!userEmail) {
+            // Try to get from prompt (temporary solution)
+            userEmail = prompt('Please enter your email address:');
+            if (userEmail) {
+                localStorage.setItem('user_email', userEmail);
+            } else {
+                showError('Email is required for verification');
+                return;
+            }
+        }
+
+        // Display email
+        document.getElementById('emailDisplay').textContent = userEmail;
+        
+        // Automatically send verification code
+        await sendVerificationCode();
+    });
+</script>
+{% endblock %}

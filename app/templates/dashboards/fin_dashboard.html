@@ -1,0 +1,2790 @@
+{% extends "base1.html" %}
+{% block title %}Financial Institution Dashboard{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/logoutanimate.css">
+<link rel="stylesheet" href="/static/css/dark_mode.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    /* ── Design Tokens ── */
+    :root {
+        --bg:               #ECF0F3;
+        --surface-glass:    rgba(255, 255, 255, 0.60);
+        --glass-border:     rgba(255, 255, 255, 0.80);
+        --shadow-dark:      #D1D9E6;
+        --shadow-light:     #FFFFFF;
+
+        --shadow-card:      8px 8px 24px #D1D9E6, -6px -6px 18px #FFFFFF;
+        --shadow-card-h:    12px 12px 32px #D1D9E6, -8px -8px 24px #FFFFFF;
+        --shadow-btn:       4px 4px 12px #D1D9E6, -4px -4px 12px #FFFFFF;
+        --shadow-btn-h:     6px 6px 18px #D1D9E6, -6px -6px 18px #FFFFFF;
+        --shadow-inset:     inset 4px 4px 10px #D1D9E6, inset -4px -4px 10px #FFFFFF;
+
+        --text-primary:     #2D3561;
+        --text-secondary:   #6B7A99;
+        --text-muted:       #9BA8C0;
+        --accent:           #3D6B9E;
+        --accent-dark:      #2E5585;
+        --accent-deep:      #1E4070;
+        --accent-bg:        rgba(61, 107, 158, 0.08);
+        --accent-bg-h:      rgba(61, 107, 158, 0.14);
+
+        --positive:         #27AE60;
+        --negative:         #E74C3C;
+        --warning:          #F39C12;
+
+        --dark-grad:        linear-gradient(145deg, #1E2D45 0%, #2D4A6B 100%);
+    }
+
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: var(--bg);
+        background-image:
+            radial-gradient(ellipse at 8% 18%, rgba(255,255,255,0.55) 0%, transparent 45%),
+            radial-gradient(ellipse at 92% 85%, rgba(209,217,230,0.45) 0%, transparent 45%);
+        min-height: 100vh;
+        position: relative;
+    }
+
+    /* ── Floating Water Droplet Decorations ── */
+    body::before {
+        content: '';
+        position: fixed;
+        width: 190px;
+        height: 190px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 32% 30%,
+            rgba(255,255,255,0.96) 0%,
+            rgba(255,255,255,0.45) 32%,
+            rgba(209,217,230,0.18) 62%,
+            transparent 100%);
+        box-shadow:
+            inset -9px -9px 22px rgba(255,255,255,0.90),
+            inset  9px  9px 22px rgba(209,217,230,0.38),
+            6px 14px 36px rgba(209,217,230,0.65);
+        top: 8%;
+        left: 1.5%;
+        animation: floatDrop1 13s ease-in-out infinite;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    body::after {
+        content: '';
+        position: fixed;
+        width: 125px;
+        height: 125px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 32% 30%,
+            rgba(255,255,255,0.96) 0%,
+            rgba(255,255,255,0.45) 32%,
+            rgba(209,217,230,0.18) 62%,
+            transparent 100%);
+        box-shadow:
+            inset -6px -6px 16px rgba(255,255,255,0.90),
+            inset  6px  6px 16px rgba(209,217,230,0.35),
+            4px 10px 24px rgba(209,217,230,0.58);
+        bottom: 12%;
+        right: 2%;
+        animation: floatDrop2 17s ease-in-out infinite;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    @keyframes floatDrop1 {
+        0%, 100% { transform: translateY(  0px) rotate(  0deg) scale(1.00); }
+        30%      { transform: translateY(-20px) rotate(  4deg) scale(1.02); }
+        65%      { transform: translateY( -9px) rotate( -3deg) scale(0.98); }
+    }
+    @keyframes floatDrop2 {
+        0%, 100% { transform: translateY(  0px) rotate(  0deg) scale(1.00); }
+        40%      { transform: translateY(-15px) rotate( -5deg) scale(1.03); }
+        72%      { transform: translateY( -6px) rotate(  3deg) scale(0.97); }
+    }
+
+    /* ── Navbar ── */
+    .navbar {
+        background: rgba(236, 240, 243, 0.88);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border-bottom: 1px solid rgba(255,255,255,0.90);
+        box-shadow: 0 4px 24px rgba(209,217,230,0.70), inset 0 1px 0 rgba(255,255,255,0.80);
+        padding: 15px 40px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: relative;
+        z-index: 100;
+    }
+
+    .nav-left {
+        display: flex;
+        align-items: center;
+        gap: 30px;
+    }
+
+    .nav-items {
+        display: flex;
+        gap: 20px;
+        list-style: none;
+    }
+
+    .nav-item {
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: all 0.3s;
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .nav-item:hover {
+        background: var(--accent-bg);
+        color: var(--accent);
+        box-shadow: 3px 3px 8px var(--shadow-dark), -3px -3px 8px var(--shadow-light);
+    }
+
+    .nav-item.active {
+        background: var(--bg);
+        color: var(--accent);
+        box-shadow: var(--shadow-inset);
+    }
+
+    /* ── Profile Dropdown ── */
+    .profile-container {
+        position: relative;
+    }
+
+    .profile-trigger {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 15px;
+        background: var(--bg);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: var(--shadow-btn);
+    }
+
+    .profile-trigger:hover {
+        box-shadow: var(--shadow-btn-h);
+    }
+
+    .profile-icon {
+        width: 35px;
+        height: 35px;
+        background: linear-gradient(145deg, #2D3561, var(--accent));
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 16px;
+        box-shadow: 2px 2px 6px rgba(45, 53, 97, 0.28);
+    }
+
+    .profile-name {
+        color: var(--text-primary);
+        font-weight: 500;
+    }
+
+    .dropdown-arrow {
+        color: var(--text-muted);
+        transition: transform 0.3s;
+    }
+
+    .dropdown-arrow.open {
+        transform: rotate(180deg);
+    }
+
+    .profile-dropdown {
+        position: absolute;
+        top: 60px;
+        right: 0;
+        background: rgba(236, 240, 243, 0.98);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(255,255,255,0.90);
+        border-radius: 10px;
+        box-shadow: 12px 12px 40px var(--shadow-dark), -6px -6px 20px var(--shadow-light);
+        min-width: 250px;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-10px);
+        transition: all 0.3s;
+        z-index: 1000;
+    }
+
+    .profile-dropdown.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    .dropdown-header {
+        padding: 20px;
+        border-bottom: 1px solid rgba(209,217,230,0.60);
+    }
+
+    .dropdown-name {
+        font-size: 16px;
+        font-weight: bold;
+        color: var(--text-primary);
+        margin-bottom: 5px;
+    }
+
+    .dropdown-email {
+        font-size: 14px;
+        color: var(--text-secondary);
+    }
+
+    .dropdown-item {
+        padding: 15px 20px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .dropdown-item:hover {
+        background: var(--accent-bg);
+    }
+
+    .dropdown-item.logout {
+        border-top: 1px solid rgba(209,217,230,0.60);
+        padding: 5px 10px;
+        display: flex;
+        justify-content: center;
+        cursor: default;
+    }
+
+    .dropdown-item.logout:hover {
+        background: rgba(231, 76, 60, 0.04);
+    }
+
+    /* Custom styles for animated logout button in dropdown */
+    .dropdown-item.logout .logoutButton {
+        width: auto;
+        height: 40px;
+        padding: 0 10px;
+        margin: 0;
+        background: none;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .dropdown-item.logout .logoutButton::before {
+        display: none;
+    }
+
+    .dropdown-item.logout .logoutButton:hover::before {
+        display: none;
+    }
+
+    .dropdown-item.logout .logoutButton .button-text {
+        color: #e74c3c;
+        font-size: 14px;
+        font-weight: 500;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .dropdown-item.logout .logoutButton .door,
+    .dropdown-item.logout .logoutButton .doorway {
+        fill: #e74c3c;
+    }
+
+    .dropdown-item.logout .logoutButton .figure {
+        fill: #e74c3c;
+    }
+
+    .dropdown-item.logout .logoutButton .door path {
+        stroke: #e74c3c;
+        fill: #e74c3c;
+    }
+
+    /* ── Pending Approval Banner ── */
+    .pending-approval-banner {
+        background: var(--dark-grad);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 30px 40px;
+        text-align: center;
+        box-shadow: 8px 8px 24px rgba(30,45,69,0.30), -4px -4px 12px rgba(255,255,255,0.70);
+        display: none;
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Decorative glass bubble on banner */
+    .pending-approval-banner::before {
+        content: '';
+        position: absolute;
+        top: -30px;
+        right: -30px;
+        width: 110px;
+        height: 110px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 33% 33%, rgba(255,255,255,0.12) 0%, transparent 70%);
+        pointer-events: none;
+    }
+
+    .pending-approval-banner h3 {
+        margin: 0 0 10px 0;
+        font-size: 22px;
+    }
+
+    .pending-approval-banner p {
+        margin: 0;
+        font-size: 16px;
+        opacity: 0.9;
+    }
+
+    .pending-approval-banner .icon {
+        font-size: 40px;
+        margin-bottom: 10px;
+    }
+
+    /* ── Verification Section ── */
+    .verification-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 60vh;
+    }
+
+    .verification-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: var(--shadow-card);
+        text-align: center;
+        max-width: 500px;
+    }
+
+    .verification-card h2 {
+        color: var(--text-primary);
+        margin-bottom: 20px;
+    }
+
+    .verification-card p {
+        color: var(--text-secondary);
+        margin-bottom: 30px;
+        line-height: 1.6;
+    }
+
+    .verify-btn {
+        padding: 15px 40px;
+        background: linear-gradient(145deg, var(--accent), var(--accent-dark));
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        transition: transform 0.2s, box-shadow 0.2s;
+        box-shadow: var(--shadow-btn);
+    }
+
+    .verify-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-btn-h);
+    }
+
+    /* ── Dashboard Content ── */
+    .dashboard-content {
+        display: none;
+    }
+
+    /* ── Tab Content Sections ── */
+    .tab-section {
+        display: none;
+        max-width: 1200px;
+        margin: 40px auto;
+        padding: 0 40px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .tab-section.active {
+        display: block;
+    }
+
+    .tab-placeholder-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        padding: 60px 40px;
+        box-shadow: var(--shadow-card);
+        text-align: center;
+        transition: box-shadow 0.35s;
+    }
+
+    .tab-placeholder-card:hover {
+        box-shadow: var(--shadow-card-h);
+    }
+
+    .tab-placeholder-card .placeholder-icon {
+        font-size: 56px;
+        margin-bottom: 20px;
+    }
+
+    .tab-placeholder-card h2 {
+        color: var(--accent);
+        font-size: 26px;
+        margin-bottom: 12px;
+    }
+
+    .tab-placeholder-card p {
+        color: var(--text-secondary);
+        font-size: 16px;
+    }
+
+    /* ── Search Bar ── */
+    .search-container {
+        max-width: 800px;
+        margin: 60px auto 40px;
+        padding: 0 20px;
+        position: relative;
+    }
+    .search-wrapper { position: relative; }
+    .search-bar {
+        width: 100%;
+        padding: 18px 25px 18px 55px;
+        font-size: 16px;
+        border: 2px solid transparent;
+        border-radius: 12px;
+        background: var(--bg);
+        box-shadow: var(--shadow-inset);
+        outline: none;
+        transition: all 0.3s;
+        color: var(--text-primary);
+    }
+    .search-bar::placeholder { color: var(--text-muted); }
+    .search-bar:focus {
+        border-color: rgba(61, 107, 158, 0.20);
+        box-shadow: var(--shadow-inset), 0 0 0 3px rgba(61, 107, 158, 0.08);
+    }
+    .search-icon {
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-muted);
+        font-size: 20px;
+    }
+    .suggestions-container {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: rgba(236, 240, 243, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255,255,255,0.90);
+        border-radius: 12px;
+        margin-top: 10px;
+        box-shadow: 10px 10px 30px var(--shadow-dark), -5px -5px 15px var(--shadow-light);
+        max-height: 400px;
+        overflow-y: auto;
+        display: none;
+        z-index: 100;
+    }
+    .suggestions-container.show { display: block; }
+    .suggestion-item {
+        padding: 15px 20px;
+        cursor: pointer;
+        border-bottom: 1px solid rgba(209,217,230,0.50);
+        transition: all 0.2s;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .suggestion-item:last-child { border-bottom: none; }
+    .suggestion-item:hover { background: var(--accent-bg); }
+    .suggestion-name { font-weight: 500; color: var(--text-primary); }
+    .suggestion-symbol { color: var(--text-secondary); font-size: 14px; }
+    .no-results { padding: 20px; text-align: center; color: var(--text-muted); }
+
+    /* ── Stock Details Card ── */
+    .stock-details-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        padding: 30px;
+        box-shadow: var(--shadow-card);
+    }
+    .back-button {
+        display: inline-block;
+        padding: 10px 20px;
+        background: var(--bg);
+        color: var(--accent);
+        border-radius: 8px;
+        cursor: pointer;
+        margin-bottom: 20px;
+        font-weight: 500;
+        transition: all 0.3s;
+        box-shadow: var(--shadow-btn);
+    }
+    .back-button:hover {
+        box-shadow: var(--shadow-btn-h);
+        color: var(--accent-dark);
+    }
+    .stock-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        padding-bottom: 20px;
+        border-bottom: 2px solid rgba(209,217,230,0.55);
+    }
+    .stock-info .stock-name {
+        font-size: 32px;
+        font-weight: bold;
+        color: var(--text-primary);
+        margin: 0 0 5px 0;
+    }
+    .stock-info .stock-symbol { font-size: 16px; color: var(--text-muted); margin: 0; }
+    .stock-price-info { text-align: right; }
+    .current-price { font-size: 42px; font-weight: bold; color: var(--text-primary); margin-bottom: 5px; }
+    .price-change { font-size: 18px; font-weight: 500; }
+    .price-change.positive { color: var(--positive); }
+    .price-change.negative { color: var(--negative); }
+    .price-change .change-amount { margin-right: 8px; }
+
+    /* ── Period Selector ── */
+    .period-selector {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 30px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .period-btn {
+        padding: 10px 20px;
+        background: var(--bg);
+        border: none;
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        min-width: 70px;
+        box-shadow: var(--shadow-btn);
+    }
+    .period-btn:hover { box-shadow: var(--shadow-btn-h); color: var(--accent); }
+    .period-btn.active { background: var(--bg); border: none; color: var(--accent); box-shadow: var(--shadow-inset); }
+
+    /* ── Chart ── */
+    .chart-container {
+        position: relative;
+        height: 400px;
+        margin-bottom: 30px;
+        background: rgba(255,255,255,0.38);
+        border: 1px solid rgba(255,255,255,0.70);
+        border-radius: 12px;
+        padding: 20px;
+    }
+
+    /* ── Range Sliders ── */
+    .range-slider-container {
+        margin: 30px 0;
+        padding: 25px;
+        background: var(--bg);
+        border-radius: 12px;
+        box-shadow: var(--shadow-inset);
+    }
+    .range-slider { margin-bottom: 35px; }
+    .range-slider:last-child { margin-bottom: 0; }
+    .range-slider-header { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: var(--text-secondary); }
+    .range-slider-label { font-weight: 500; color: var(--text-primary); }
+    .range-slider-track { position: relative; height: 6px; background: var(--shadow-dark); border-radius: 3px; margin: 20px 0; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.08); }
+    .range-slider-fill { position: absolute; height: 100%; background: linear-gradient(90deg, var(--accent) 0%, #6B9EC8 100%); border-radius: 3px; left: 0; right: 0; }
+    .range-slider-marker {
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%,-50%);
+        width: 16px; height: 16px;
+        background: var(--bg);
+        border: 3px solid var(--accent);
+        border-radius: 50%;
+        box-shadow: var(--shadow-btn);
+        z-index: 2;
+    }
+    .range-slider-values { display: flex; justify-content: space-between; margin-top: 8px; }
+    .range-value { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+
+    /* ── Stock Details Grid ── */
+    .stock-details-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 15px; margin-top: 30px; }
+    .detail-card {
+        background: rgba(255,255,255,0.50);
+        padding: 18px;
+        border-radius: 10px;
+        border-left: 4px solid var(--accent);
+        box-shadow: 4px 4px 12px var(--shadow-dark), -2px -2px 8px var(--shadow-light);
+        transition: box-shadow 0.3s, transform 0.3s;
+    }
+    .detail-card:hover {
+        box-shadow: 7px 7px 18px var(--shadow-dark), -4px -4px 12px var(--shadow-light);
+        transform: translateY(-2px);
+    }
+    .detail-label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+    .detail-value { display: block; font-size: 18px; font-weight: bold; color: var(--text-primary); }
+    .detail-value.positive { color: var(--positive); }
+    .detail-value.negative { color: var(--negative); }
+
+    /* ── Add to Portfolio Button ── */
+    .add-portfolio-btn {
+        padding: 8px 16px;
+        background: linear-gradient(145deg, var(--accent), var(--accent-dark));
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.3s;
+        box-shadow: 3px 3px 8px var(--shadow-dark), -3px -3px 8px var(--shadow-light);
+    }
+    .add-portfolio-btn:hover {
+        background: linear-gradient(145deg, var(--accent-dark), var(--accent-deep));
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-btn-h);
+    }
+    .added-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        background: var(--positive);
+        color: white;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    .added-badge::before { content: "✓"; font-size: 16px; font-weight: bold; }
+
+    /* ── Portfolio Holdings Card (below chart) ── */
+    .portfolio-holdings-card {
+        margin-top: 25px;
+        padding: 20px;
+        background: var(--dark-grad);
+        border-radius: 12px;
+        color: white;
+        box-shadow: 0 4px 20px rgba(30,45,69,0.28);
+        position: relative;
+        overflow: hidden;
+    }
+    .portfolio-holdings-card::before {
+        content: '';
+        position: absolute;
+        top: -35px; right: -35px;
+        width: 120px; height: 120px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 33% 33%, rgba(255,255,255,0.12) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    .holdings-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+    .holdings-shares { font-size: 16px; font-weight: 500; }
+    .holdings-shares strong { font-size: 20px; font-weight: 700; }
+    .holdings-avg-price { font-size: 14px; opacity: 0.9; }
+    .holdings-details { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    .holdings-item { display: flex; flex-direction: column; gap: 4px; }
+    .holdings-label { font-size: 13px; opacity: 0.8; }
+    .holdings-value { font-size: 18px; font-weight: 700; }
+    .holdings-value.negative { color: #ff6b6b; }
+    .holdings-value.positive { color: #51cf66; }
+
+    /* ── Portfolio Tab (list view) ── */
+    .content-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        padding: 40px;
+        box-shadow: var(--shadow-card);
+        transition: box-shadow 0.35s;
+    }
+    .content-card:hover { box-shadow: var(--shadow-card-h); }
+
+    .portfolio-container {
+        max-width: 700px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+    .portfolio-summary-card {
+        background: var(--dark-grad);
+        border-radius: 15px;
+        padding: 25px;
+        color: white;
+        box-shadow: 8px 8px 24px rgba(30,45,69,0.32), -4px -4px 12px rgba(255,255,255,0.70);
+        position: relative;
+        overflow: hidden;
+    }
+    .portfolio-summary-card::before {
+        content: '';
+        position: absolute;
+        top: -45px; right: -45px;
+        width: 160px; height: 160px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 33% 33%, rgba(255,255,255,0.14) 0%, transparent 70%);
+        box-shadow: inset -4px -4px 14px rgba(255,255,255,0.10);
+        pointer-events: none;
+    }
+    .holdings-title { font-size: 16px; font-weight: 500; opacity: 0.9; }
+    .holdings-count {
+        background: rgba(255,255,255,0.18);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 15px;
+        font-weight: 700;
+        margin-right: 530px;
+    }
+    .portfolio-value { font-size: 36px; font-weight: bold; margin-bottom: 20px; }
+    .portfolio-metrics { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 15px; }
+    .metric-row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+    .metric-label { opacity: 0.9; }
+    .metric-value { font-weight: 600; }
+    .metric-value.positive { color: #4ade80; }
+    .metric-value.negative { color: #f87171; }
+
+    .holdings-list-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        padding: 25px;
+        box-shadow: var(--shadow-card);
+    }
+    .holdings-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid rgba(209,217,230,0.55); }
+    .holdings-list-title { font-size: 18px; font-weight: bold; color: var(--text-primary); }
+
+    .holding-item {
+        padding: 15px;
+        border-bottom: 1px solid rgba(209,217,230,0.40);
+        cursor: pointer;
+        transition: all 0.2s;
+        border-radius: 8px;
+    }
+    .holding-item:last-child { border-bottom: none; }
+    .holding-item:hover {
+        background: rgba(255,255,255,0.55);
+        box-shadow: 2px 2px 8px var(--shadow-dark), -1px -1px 4px var(--shadow-light);
+        transform: translateX(3px);
+    }
+    .holding-main { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .holding-left { display: flex; align-items: center; gap: 10px; }
+    .holding-actions { display: flex; gap: 8px; }
+    .action-btn {
+        padding: 6px 10px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+        box-shadow: 2px 2px 6px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
+    }
+    .action-btn-edit { background: linear-gradient(145deg, var(--accent), var(--accent-dark)); color: white; }
+    .action-btn-edit:hover { background: linear-gradient(145deg, var(--accent-dark), var(--accent-deep)); box-shadow: 3px 3px 9px var(--shadow-dark), -3px -3px 9px var(--shadow-light); }
+    .action-btn-delete { background: var(--negative); color: white; }
+    .action-btn-delete:hover { background: #c0392b; box-shadow: 3px 3px 9px var(--shadow-dark), -3px -3px 9px var(--shadow-light); }
+    .holding-name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+    .holding-current-value { font-size: 18px; font-weight: bold; }
+    .holding-current-value.positive { color: var(--positive); }
+    .holding-current-value.negative { color: var(--negative); }
+    .holding-details { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--text-secondary); }
+    .empty-portfolio { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .empty-portfolio-icon { font-size: 64px; margin-bottom: 20px; opacity: 0.3; }
+    .empty-portfolio-text { font-size: 18px; color: var(--text-secondary); margin-bottom: 10px; }
+    .empty-portfolio-subtext { font-size: 14px; color: var(--text-muted); }
+
+    /* ── Modals ── */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(30,45,69,0.38);
+        backdrop-filter: blur(4px);
+        z-index: 9998;
+        align-items: center;
+        justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+        background: rgba(236, 240, 243, 0.98);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(255,255,255,0.90);
+        border-radius: 15px;
+        padding: 30px;
+        max-width: 450px;
+        width: 90%;
+        box-shadow: 20px 20px 60px var(--shadow-dark), -10px -10px 30px var(--shadow-light);
+        z-index: 9999;
+    }
+    .modal-header { font-size: 24px; font-weight: bold; color: var(--text-primary); margin-bottom: 10px; }
+    .modal-subheader { font-size: 14px; color: var(--text-secondary); margin-bottom: 25px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-size: 14px; font-weight: 500; color: var(--text-primary); margin-bottom: 8px; }
+    .form-group input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid transparent;
+        border-radius: 8px;
+        font-size: 16px;
+        transition: border-color 0.3s, box-shadow 0.3s;
+        background: var(--bg);
+        color: var(--text-primary);
+        box-shadow: var(--shadow-inset);
+    }
+    .form-group input:focus {
+        outline: none;
+        border-color: rgba(61, 107, 158, 0.25);
+        box-shadow: var(--shadow-inset), 0 0 0 3px rgba(61, 107, 158, 0.08);
+    }
+    .modal-buttons { display: flex; gap: 10px; margin-top: 25px; }
+    .modal-btn { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+    .modal-btn-primary {
+        background: linear-gradient(145deg, var(--accent), var(--accent-dark));
+        color: white;
+        box-shadow: var(--shadow-btn);
+    }
+    .modal-btn-primary:hover {
+        background: linear-gradient(145deg, var(--accent-dark), var(--accent-deep));
+        box-shadow: var(--shadow-btn-h);
+        transform: translateY(-1px);
+    }
+    .modal-btn-secondary {
+        background: var(--bg);
+        color: var(--text-secondary);
+        box-shadow: var(--shadow-btn);
+    }
+    .modal-btn-secondary:hover { box-shadow: var(--shadow-btn-h); }
+
+    /* ── Toast Notifications ── */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
+    .toast {
+        min-width: 300px;
+        padding: 16px 20px;
+        background: rgba(236, 240, 243, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255,255,255,0.90);
+        border-radius: 12px;
+        box-shadow: var(--shadow-card);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        animation: slideIn 0.3s ease-out;
+        position: relative;
+        overflow: hidden;
+    }
+    .toast::before { content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 4px; }
+    .toast.success::before { background: var(--positive); }
+    .toast.error::before { background: var(--negative); }
+    .toast.warning::before { background: var(--warning); }
+    .toast-icon { font-size: 24px; flex-shrink: 0; }
+    .toast.success .toast-icon { color: var(--positive); }
+    .toast.error .toast-icon { color: var(--negative); }
+    .toast.warning .toast-icon { color: var(--warning); }
+    .toast-content { flex: 1; }
+    .toast-title { font-weight: 600; font-size: 14px; color: var(--text-primary); margin-bottom: 2px; }
+    .toast-message { font-size: 13px; color: var(--text-secondary); }
+    .toast-close {
+        background: none;
+        border: none;
+        font-size: 20px;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 0;
+        width: 24px; height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: all 0.2s;
+    }
+    .toast-close:hover { background: rgba(209,217,230,0.55); color: var(--text-primary); }
+    .toast.removing { animation: slideOut 0.3s ease-in forwards; }
+    @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
+
+    /* ── Equity Research Tab ── */
+    .research-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        padding: 40px;
+        box-shadow: var(--shadow-card);
+    }
+
+    .research-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 8px;
+    }
+
+    .research-header .icon {
+        font-size: 36px;
+    }
+
+    .research-header h2 {
+        color: var(--accent);
+        font-size: 26px;
+        margin: 0;
+    }
+
+    .research-subtitle {
+        color: var(--text-secondary);
+        font-size: 14px;
+        margin-bottom: 28px;
+        margin-left: 2px;
+    }
+
+    .research-search-row {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 32px;
+    }
+
+    .research-input {
+        flex: 1;
+        padding: 14px 20px;
+        border: 2px solid transparent;
+        border-radius: 10px;
+        font-size: 15px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        outline: none;
+        background: var(--bg);
+        color: var(--text-primary);
+        box-shadow: var(--shadow-inset);
+    }
+
+    .research-input:focus {
+        border-color: rgba(61, 107, 158, 0.25);
+        box-shadow: var(--shadow-inset), 0 0 0 3px rgba(61, 107, 158, 0.08);
+    }
+
+    .research-btn {
+        padding: 14px 28px;
+        background: linear-gradient(145deg, var(--accent), var(--accent-dark));
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, opacity 0.2s, box-shadow 0.2s;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: var(--shadow-btn);
+    }
+
+    .research-btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        opacity: 0.95;
+        box-shadow: var(--shadow-btn-h);
+    }
+
+    .research-btn:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+
+    /* ── Suggestion Chips ── */
+    .suggestion-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 28px;
+    }
+
+    .chip {
+        padding: 8px 16px;
+        background: var(--accent-bg);
+        border: 1px solid rgba(61, 107, 158, 0.18);
+        border-radius: 20px;
+        font-size: 13px;
+        color: var(--accent);
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        box-shadow: 2px 2px 6px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
+    }
+
+    .chip:hover {
+        background: var(--accent-bg-h);
+        border-color: var(--accent);
+        box-shadow: 3px 3px 9px var(--shadow-dark), -3px -3px 9px var(--shadow-light);
+    }
+
+    /* ── Loading Spinner ── */
+    .research-loading {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 20px;
+        gap: 16px;
+    }
+
+    .research-loading.visible {
+        display: flex;
+    }
+
+    .spinner {
+        width: 44px;
+        height: 44px;
+        border: 4px solid var(--shadow-dark);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    /* ── Answer Box ── */
+    .research-answer-box {
+        display: none;
+        border: 1px solid rgba(61, 107, 158, 0.15);
+        background: rgba(255,255,255,0.48);
+        border-radius: 12px;
+        padding: 28px;
+        margin-bottom: 24px;
+        animation: fadeInUp 0.4s ease;
+        box-shadow: 4px 4px 14px var(--shadow-dark), -2px -2px 8px var(--shadow-light);
+    }
+
+    .research-answer-box.visible {
+        display: block;
+    }
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .answer-label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        color: var(--accent);
+        text-transform: uppercase;
+        margin-bottom: 12px;
+    }
+
+    .answer-text {
+        color: var(--text-primary);
+        font-size: 15px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+    }
+
+    /* ── Sources ── */
+    .sources-box {
+        display: none;
+        margin-top: 20px;
+    }
+
+    .sources-box.visible {
+        display: block;
+    }
+
+    .sources-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .source-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .source-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 13px;
+    }
+
+    .source-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        margin-top: 5px;
+        flex-shrink: 0;
+    }
+
+    .source-item a {
+        color: var(--accent);
+        text-decoration: none;
+        word-break: break-all;
+    }
+
+    .source-item a:hover {
+        text-decoration: underline;
+    }
+
+    /* ── Error State ── */
+    .research-error {
+        display: none;
+        background: rgba(231,76,60,0.05);
+        border: 1px solid rgba(231,76,60,0.20);
+        border-radius: 10px;
+        padding: 16px 20px;
+        color: #c0392b;
+        font-size: 14px;
+        margin-top: 10px;
+    }
+
+    .research-error.visible { display: block; }
+
+    /* ── History ── */
+    .history-section {
+        margin-top: 32px;
+        border-top: 1px solid rgba(209,217,230,0.55);
+        padding-top: 24px;
+    }
+
+    .history-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+
+    .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+
+    .history-item {
+        padding: 10px 14px;
+        background: var(--bg);
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+        text-align: left;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        box-shadow: 2px 2px 6px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
+    }
+
+    .history-item:hover {
+        background: var(--accent-bg);
+        color: var(--accent);
+        box-shadow: 3px 3px 9px var(--shadow-dark), -3px -3px 9px var(--shadow-light);
+    }
+
+    /* ── News Tab ── */
+    .news-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        padding: 36px 40px;
+        box-shadow: var(--shadow-card);
+    }
+
+    .news-header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 14px;
+    }
+
+    .news-header-left {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .news-icon { font-size: 36px; }
+
+    .news-title {
+        color: var(--accent);
+        font-size: 26px;
+        margin: 0 0 4px 0;
+    }
+
+    .news-subtitle {
+        color: var(--text-secondary);
+        font-size: 13px;
+        margin: 0;
+    }
+
+    .news-refresh-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 20px;
+        background: linear-gradient(145deg, var(--accent), var(--accent-dark));
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+        white-space: nowrap;
+        box-shadow: var(--shadow-btn);
+    }
+    .news-refresh-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); box-shadow: var(--shadow-btn-h); }
+    .news-refresh-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    #newsRefreshIcon { font-size: 16px; display: inline-block; transition: transform 0.5s; }
+    #newsRefreshIcon.spinning { animation: spin 0.7s linear infinite; }
+
+    .news-loading {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 20px;
+        gap: 16px;
+    }
+    .news-loading.visible { display: flex; }
+
+    /* ── AI Trend Card ── */
+    .trend-card {
+        background: var(--dark-grad);
+        border-radius: 12px;
+        padding: 24px 28px;
+        margin-bottom: 24px;
+        color: white;
+        animation: fadeInUp 0.4s ease;
+        box-shadow: 8px 8px 24px rgba(30,45,69,0.30), -4px -4px 12px rgba(255,255,255,0.60);
+        position: relative;
+        overflow: hidden;
+    }
+    .trend-card::before {
+        content: '';
+        position: absolute;
+        top: -28px; right: -28px;
+        width: 95px; height: 95px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 33% 33%, rgba(255,255,255,0.14) 0%, transparent 70%);
+        box-shadow: inset -3px -3px 10px rgba(255,255,255,0.08);
+        pointer-events: none;
+    }
+
+    .trend-card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .trend-mood-badge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 20px;
+        padding: 6px 16px;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+    }
+
+    .trend-mood-badge.bullish  { background: rgba(74,222,128,0.25); }
+    .trend-mood-badge.bearish  { background: rgba(248,113,113,0.30); }
+    .trend-mood-badge.cautious { background: rgba(251,191,36,0.25); }
+
+    .trend-ai-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        opacity: 0.75;
+    }
+
+    .trend-summary-text {
+        font-size: 14px;
+        line-height: 1.75;
+        opacity: 0.95;
+        margin: 0 0 12px 0;
+    }
+
+    .trend-timestamp {
+        font-size: 11px;
+        opacity: 0.6;
+    }
+
+    /* ── Filter Pills ── */
+    .news-filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 24px;
+    }
+
+    .news-filter-btn {
+        padding: 7px 16px;
+        background: var(--accent-bg);
+        border: 1px solid rgba(61,107,158,0.15);
+        border-radius: 20px;
+        font-size: 13px;
+        color: var(--accent);
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        box-shadow: 2px 2px 6px var(--shadow-dark), -2px -2px 6px var(--shadow-light);
+    }
+    .news-filter-btn:hover  { background: var(--accent-bg-h); box-shadow: 3px 3px 9px var(--shadow-dark), -3px -3px 9px var(--shadow-light); }
+    .news-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+    /* ── News Grid ── */
+    .news-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 18px;
+    }
+
+    .news-article-card {
+        border: 1px solid rgba(255,255,255,0.72);
+        border-radius: 12px;
+        overflow: hidden;
+        transition: box-shadow 0.25s, transform 0.25s;
+        display: flex;
+        flex-direction: column;
+        background: rgba(255,255,255,0.65);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        animation: fadeInUp 0.35s ease both;
+        box-shadow: 4px 4px 14px var(--shadow-dark), -2px -2px 8px var(--shadow-light);
+    }
+    .news-article-card:hover {
+        box-shadow: 8px 8px 22px var(--shadow-dark), -4px -4px 12px var(--shadow-light);
+        transform: translateY(-3px);
+    }
+    .news-article-card.hidden { display: none; }
+
+    .news-article-img {
+        width: 100%;
+        height: 160px;
+        object-fit: cover;
+        background: rgba(209,217,230,0.40);
+        display: block;
+    }
+
+    .news-article-img-placeholder {
+        width: 100%;
+        height: 160px;
+        background: linear-gradient(135deg, rgba(61,107,158,0.08) 0%, rgba(46,85,133,0.06) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40px;
+    }
+
+    .news-article-body {
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        gap: 8px;
+    }
+
+    .news-article-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .news-badge-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .news-badge {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        padding: 3px 8px;
+        border-radius: 10px;
+    }
+    .news-badge.india  { background: rgba(255,153,0,0.12);  color: #b35a00; }
+    .news-badge.global { background: rgba(61,107,158,0.10); color: #2E5585; }
+    .news-badge.positive { background: rgba(39,174,96,0.12);  color: #1a7a43; }
+    .news-badge.negative { background: rgba(231,76,60,0.12);  color: #a93226; }
+    .news-badge.neutral  { background: rgba(0,0,0,0.05);      color: var(--text-secondary); }
+
+    .news-article-time {
+        font-size: 11px;
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+
+    .news-article-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.5;
+        margin: 0;
+        display: -webkit-box;
+        /* -webkit-line-clamp: 3; */
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .news-article-desc {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.55;
+        margin: 0;
+        display: -webkit-box;
+        /* -webkit-line-clamp: 2; */
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .news-article-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: auto;
+        padding-top: 10px;
+        border-top: 1px solid rgba(209,217,230,0.40);
+    }
+
+    .news-source-name {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .news-read-link {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+        text-decoration: none;
+        transition: opacity 0.2s;
+    }
+    .news-read-link:hover { opacity: 0.75; text-decoration: underline; }
+
+    .news-empty {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+        font-size: 15px;
+    }
+</style>
+
+<!-- Navbar -->
+<nav class="navbar">
+    <div class="nav-left">
+        <div class="logo"><img id="logoImage" src="../static/img/logo_outline.png" style="width: 55px;" alt="logo"></div>
+        <ul class="nav-items">
+            <li class="nav-item active" data-tab="portfolio">Portfolio</li>
+            <li class="nav-item" data-tab="research">Research</li>
+            <li class="nav-item" data-tab="news">News</li>
+        </ul>
+    </div>
+
+    <!-- Dark / Light Mode Toggle -->
+    <div class="dm-toggle" id="dmToggle" title="Toggle dark mode">
+        <!-- Sun -->
+        <svg version="1.1" class="dm-sun" xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 496 496" style="enable-background:new 0 0 496 496;" xml:space="preserve">
+            <rect x="152.994" y="58.921" transform="matrix(0.3827 0.9239 -0.9239 0.3827 168.6176 -118.5145)" width="40.001" height="16"/>
+            <rect x="46.9" y="164.979" transform="matrix(0.9239 0.3827 -0.3827 0.9239 71.29 -12.4346)" width="40.001" height="16"/>
+            <rect x="46.947" y="315.048" transform="matrix(0.9239 -0.3827 0.3827 0.9239 -118.531 50.2116)" width="40.001" height="16"/>
+            <rect x="164.966" y="409.112" transform="matrix(-0.9238 -0.3828 0.3828 -0.9238 168.4872 891.7491)" width="16" height="39.999"/>
+            <rect x="303.031" y="421.036" transform="matrix(-0.3827 -0.9239 0.9239 -0.3827 50.2758 891.6655)" width="40.001" height="16"/>
+            <rect x="409.088" y="315.018" transform="matrix(-0.9239 -0.3827 0.3827 -0.9239 701.898 785.6559)" width="40.001" height="16"/>
+            <rect x="409.054" y="165.011" transform="matrix(-0.9239 0.3827 -0.3827 -0.9239 891.6585 168.6574)" width="40.001" height="16"/>
+            <rect x="315.001" y="46.895" transform="matrix(0.9238 0.3828 -0.3828 0.9238 50.212 -118.5529)" width="16" height="39.999"/>
+            <path d="M248,88c-88.224,0-160,71.776-160,160s71.776,160,160,160s160-71.776,160-160S336.224,88,248,88z M248,392c-79.4,0-144-64.6-144-144s64.6-144,144-144s144,64.6,144,144S327.4,392,248,392z"/>
+            <rect x="240" width="16" height="72"/>
+            <rect x="62.097" y="90.096" transform="matrix(0.7071 0.7071 -0.7071 0.7071 98.0963 -40.6334)" width="71.999" height="16"/>
+            <rect y="240" width="72" height="16"/>
+            <rect x="90.091" y="361.915" transform="matrix(-0.7071 -0.7071 0.7071 -0.7071 -113.9157 748.643)" width="16" height="71.999"/>
+            <rect x="240" y="424" width="16" height="72"/>
+            <rect x="361.881" y="389.915" transform="matrix(-0.7071 -0.7071 0.7071 -0.7071 397.8562 960.6281)" width="71.999" height="16"/>
+            <rect x="424" y="240" width="72" height="16"/>
+            <rect x="389.911" y="62.091" transform="matrix(0.7071 0.7071 -0.7071 0.7071 185.9067 -252.6357)" width="16" height="71.999"/>
+        </svg>
+        <!-- Moon -->
+        <svg version="1.1" class="dm-moon" xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 49.739 49.739" style="enable-background:new 0 0 49.739 49.739;" xml:space="preserve">
+            <path d="M25.068,48.889c-9.173,0-18.017-5.06-22.396-13.804C-3.373,23.008,1.164,8.467,13.003,1.979l2.061-1.129l-0.615,2.268
+                c-1.479,5.459-0.899,11.25,1.633,16.306c2.75,5.493,7.476,9.587,13.305,11.526c5.831,1.939,12.065,1.492,17.559-1.258
+                c0.25-0.125,0.492-0.258,0.734-0.391l2.061-1.13l-0.585,2.252c-1.863,6.873-6.577,12.639-12.933,15.822
+                C32.639,48.039,28.825,48.888,25.068,48.889z M12.002,4.936c-9.413,6.428-12.756,18.837-7.54,29.253
+                c5.678,11.34,19.522,15.945,30.864,10.268c5.154-2.582,9.136-7.012,11.181-12.357c-5.632,2.427-11.882,2.702-17.752,0.748
+                c-6.337-2.108-11.473-6.557-14.463-12.528C11.899,15.541,11.11,10.16,12.002,4.936z"/>
+        </svg>
+    </div>
+
+    <!-- Profile Dropdown -->
+    <div class="profile-container">
+        <div class="profile-trigger" onclick="toggleProfileDropdown()">
+            <div class="profile-icon" id="profileInitial">?</div>
+            <span class="profile-name" id="profileName">Institution</span>
+            <span class="dropdown-arrow" id="dropdownArrow">▼</span>
+        </div>
+        <div class="profile-dropdown" id="profileDropdown">
+            <div class="dropdown-header">
+                <div class="dropdown-name" id="dropdownName">Loading...</div>
+                <div class="dropdown-email" id="dropdownEmail">Loading...</div>
+            </div>
+            <div class="dropdown-item logout">
+                <button class="logoutButton">
+                    <svg class="doorway" viewBox="0 0 100 100">
+                        <path d="M93.4 86.3H58.6c-1.9 0-3.4-1.5-3.4-3.4V17.1c0-1.9 1.5-3.4 3.4-3.4h34.8c1.9 0 3.4 1.5 3.4 3.4v65.8c0 1.9-1.5 3.4-3.4 3.4z" />
+                        <path class="bang" d="M40.5 43.7L26.6 31.4l-2.5 6.7zM41.9 50.4l-19.5-4-1.4 6.3zM40 57.4l-17.7 3.9 3.9 5.7z" />
+                    </svg>
+                    <svg class="figure" viewBox="0 0 100 100">
+                        <circle cx="52.1" cy="32.4" r="6.4" />
+                        <path d="M50.7 62.8c-1.2 2.5-3.6 5-7.2 4-3.2-.9-4.9-3.5-4-7.8.7-3.4 3.1-13.8 4.1-15.8 1.7-3.4 1.6-4.6 7-3.7 4.3.7 4.6 2.5 4.3 5.4-.4 3.7-2.8 15.1-4.2 17.9z" />
+                        <g class="arm1">
+                            <path d="M55.5 56.5l-6-9.5c-1-1.5-.6-3.5.9-4.4 1.5-1 3.7-1.1 4.6.4l6.1 10c1 1.5.3 3.5-1.1 4.4-1.5.9-3.5.5-4.5-.9z" />
+                            <path class="wrist1" d="M69.4 59.9L58.1 58c-1.7-.3-2.9-1.9-2.6-3.7.3-1.7 1.9-2.9 3.7-2.6l11.4 1.9c1.7.3 2.9 1.9 2.6 3.7-.4 1.7-2 2.9-3.8 2.6z" />
+                        </g>
+                        <g class="arm2">
+                            <path d="M34.2 43.6L45 40.3c1.7-.6 3.5.3 4 2 .6 1.7-.3 4-2 4.5l-10.8 2.8c-1.7.6-3.5-.3-4-2-.6-1.6.3-3.4 2-4z" />
+                            <path class="wrist2" d="M27.1 56.2L32 45.7c.7-1.6 2.6-2.3 4.2-1.6 1.6.7 2.3 2.6 1.6 4.2L33 58.8c-.7 1.6-2.6 2.3-4.2 1.6-1.7-.7-2.4-2.6-1.7-4.2z" />
+                        </g>
+                        <g class="leg1">
+                            <path d="M52.1 73.2s-7-5.7-7.9-6.5c-.9-.9-1.2-3.5-.1-4.9 1.1-1.4 3.8-1.9 5.2-.9l7.9 7c1.4 1.1 1.7 3.5.7 4.9-1.1 1.4-4.4 1.5-5.8.4z" />
+                            <path class="calf1" d="M52.6 84.4l-1-12.8c-.1-1.9 1.5-3.6 3.5-3.7 2-.1 3.7 1.4 3.8 3.4l1 12.8c.1 1.9-1.5 3.6-3.5 3.7-2 0-3.7-1.5-3.8-3.4z" />
+                        </g>
+                        <g class="leg2">
+                            <path d="M37.8 72.7s1.3-10.2 1.6-11.4 2.4-2.8 4.1-2.6c1.7.2 3.6 2.3 3.4 4l-1.8 11.1c-.2 1.7-1.7 3.3-3.4 3.1-1.8-.2-4.1-2.4-3.9-4.2z" />
+                            <path class="calf2" d="M29.5 82.3l9.6-10.9c1.3-1.4 3.6-1.5 5.1-.1 1.5 1.4.4 4.9-.9 6.3l-8.5 9.6c-1.3 1.4-3.6 1.5-5.1.1-1.4-1.3-1.5-3.5-.2-5z" />
+                        </g>
+                    </svg>
+                    <svg class="door" viewBox="0 0 100 100">
+                        <path d="M93.4 86.3H58.6c-1.9 0-3.4-1.5-3.4-3.4V17.1c0-1.9 1.5-3.4 3.4-3.4h34.8c1.9 0 3.4 1.5 3.4 3.4v65.8c0 1.9-1.5 3.4-3.4 3.4z" />
+                        <circle cx="66" cy="50" r="3.7" />
+                    </svg>
+                    <span class="button-text">Log Out</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<!-- Pending Approval Banner -->
+<div id="pendingBanner" class="pending-approval-banner">
+    <div class="icon">⏳</div>
+    <h3>Awaiting Admin Approval</h3>
+    <p>Your email has been verified successfully! Your account is currently under review by our administrators. You will receive full access once approved.</p>
+</div>
+
+<!-- Email Verification Section -->
+<div id="verificationSection" class="verification-container" style="display: none;">
+    <div class="verification-card">
+        <h2>Email Verification Required</h2>
+        <p>
+            To access your dashboard, you have to verify your registered email address. Click below
+        </p>
+        <button class="verify-btn" onclick="goToVerification()">Enter Verification Code</button>
+    </div>
+</div>
+
+<!-- Dashboard Content -->
+<div id="dashboardContent" class="dashboard-content">
+
+    <!-- Portfolio Tab -->
+    <div class="tab-section active" id="tab-portfolio">
+
+        <!-- Search Bar -->
+        <div class="search-container">
+            <div class="search-wrapper">
+                <span class="search-icon">🔍</span>
+                <input
+                    type="text"
+                    class="search-bar"
+                    id="stockSearch"
+                    placeholder="Search for stocks (e.g., Reliance, TCS, HDFC Bank...)"
+                    autocomplete="off">
+                <div class="suggestions-container" id="suggestionsContainer"></div>
+            </div>
+        </div>
+
+        <!-- Stock Details View (hidden by default) -->
+        <div id="stockDetailsView" style="display:none;">
+            <div class="stock-details-card">
+
+                <!-- Back Button -->
+                <div class="back-button" onclick="closeStockDetails()">← Back to Portfolio</div>
+
+                <!-- Stock Header -->
+                <div class="stock-header">
+                    <div class="stock-info">
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <h1 class="stock-name" id="stockName">Loading...</h1>
+                            <button class="add-portfolio-btn" id="addPortfolioBtn" onclick="showAddPortfolioModal()" style="display:none;">
+                                + Add to Portfolio
+                            </button>
+                            <span class="added-badge" id="addedBadge" style="display:none;">Added</span>
+                        </div>
+                        <p class="stock-symbol" id="stockSymbol">...</p>
+                    </div>
+                    <div class="stock-price-info">
+                        <div class="current-price" id="currentPrice">₹---</div>
+                        <div class="price-change" id="priceChange">
+                            <span class="change-amount">---</span>
+                            <span class="change-percent">(---%) </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Period Selector -->
+                <div class="period-selector">
+                    <button class="period-btn active" data-period="1d" onclick="changePeriod('1d')">1D</button>
+                    <button class="period-btn" data-period="1w" onclick="changePeriod('1w')">1W</button>
+                    <button class="period-btn" data-period="1m" onclick="changePeriod('1m')">1M</button>
+                    <button class="period-btn" data-period="6m" onclick="changePeriod('6m')">6M</button>
+                    <button class="period-btn" data-period="1y" onclick="changePeriod('1y')">1Y</button>
+                    <button class="period-btn" data-period="5y" onclick="changePeriod('5y')">5Y</button>
+                    <button class="period-btn" data-period="max" onclick="changePeriod('max')">MAX</button>
+                </div>
+
+                <!-- Chart Container -->
+                <div class="chart-container">
+                    <canvas id="stockChart"></canvas>
+                </div>
+
+                <!-- Portfolio Holdings Card (shown only when stock is in portfolio) -->
+                <div class="portfolio-holdings-card" id="portfolioHoldingsCard" style="display:none;">
+                    <h2>Holding Details</h2><hr><br>
+                    <div class="holdings-header">
+                        <div class="holdings-shares"><strong id="holdingsQuantity">0</strong> shares</div>
+                        <div class="holdings-avg-price">Avg price <strong id="holdingsAvgPrice">₹0.00</strong></div>
+                    </div>
+                    <div class="holdings-details">
+                        <div class="holdings-item">
+                            <span class="holdings-label">Invested</span>
+                            <span class="holdings-value" id="holdingsInvested">₹0.00</span>
+                        </div>
+                        <div class="holdings-item">
+                            <span class="holdings-label">Current</span>
+                            <span class="holdings-value" id="holdingsCurrent">₹0.00</span>
+                        </div>
+                        <div class="holdings-item">
+                            <span class="holdings-label">Returns</span>
+                            <span class="holdings-value" id="holdingsReturns">₹0.00</span>
+                        </div>
+                        <div class="holdings-item">
+                            <span class="holdings-label">Change</span>
+                            <span class="holdings-value" id="holdingsChangePercent">0.00%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Range Sliders -->
+                <div class="range-slider-container">
+                    <div class="range-slider">
+                        <div class="range-slider-header">
+                            <span class="range-slider-label">Today's Low</span>
+                            <span class="range-slider-label">Today's High</span>
+                        </div>
+                        <div class="range-slider-track">
+                            <div class="range-slider-fill" id="dayRangeFill"></div>
+                            <div class="range-slider-marker" id="dayRangeMarker"></div>
+                        </div>
+                        <div class="range-slider-values">
+                            <span class="range-value" id="todayLowValue">---</span>
+                            <span class="range-value" id="todayHighValue">---</span>
+                        </div>
+                    </div>
+                    <div class="range-slider">
+                        <div class="range-slider-header">
+                            <span class="range-slider-label">52W Low</span>
+                            <span class="range-slider-label">52W High</span>
+                        </div>
+                        <div class="range-slider-track">
+                            <div class="range-slider-fill" id="weekRangeFill"></div>
+                            <div class="range-slider-marker" id="weekRangeMarker"></div>
+                        </div>
+                        <div class="range-slider-values">
+                            <span class="range-value" id="week52LowValue">---</span>
+                            <span class="range-value" id="week52HighValue">---</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stock Details Grid -->
+                <div class="stock-details-grid">
+                    <div class="detail-card"><span class="detail-label">Market Cap</span><span class="detail-value" id="detailMarketCap">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Volume</span><span class="detail-value" id="detailVolume">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Sector</span><span class="detail-value" id="detailSector">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Industry</span><span class="detail-value" id="detailIndustry">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Dividend Yield</span><span class="detail-value" id="detailDividendYield">---</span></div>
+                    <div class="detail-card"><span class="detail-label">P/E Ratio</span><span class="detail-value" id="detailPeRatio">---</span></div>
+                    <div class="detail-card"><span class="detail-label">P/B Ratio</span><span class="detail-value" id="detailPbRatio">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Profit Margin</span><span class="detail-value" id="detailProfitMargin">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Revenue Growth</span><span class="detail-value" id="detailRevenueGrowth">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Debt to Equity</span><span class="detail-value" id="detailDebtToEquity">---</span></div>
+                    <div class="detail-card"><span class="detail-label">Book Value/Share</span><span class="detail-value" id="detailBookValue">---</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Default Portfolio Content (shown by default) -->
+        <div id="portfolioContent">
+            <!-- Filled dynamically by loadPortfolio() -->
+        </div>
+
+    </div>
+
+    <!-- Research Tab -->
+    <div class="tab-section" id="tab-research">
+        <div class="research-card">
+
+            <!-- Header -->
+            <div class="research-header">
+                <span class="icon">📈</span>
+                <h2>Equity Research</h2>
+            </div>
+            <p class="research-subtitle">Ask any question about Indian stocks, financials, or market news - powered by live web search.</p>
+
+            <!-- Search row -->
+            <div class="research-search-row">
+                <input
+                    id="researchInput"
+                    class="research-input"
+                    type="text"
+                    placeholder="e.g. What is the net revenue of Tata Motors in Q2 FY2025?"
+                    onkeydown="if(event.key==='Enter') runResearch()"
+                />
+                <button class="research-btn" id="researchBtn" onclick="runResearch()">
+                    <span id="researchBtnIcon">🔍</span>
+                    <span id="researchBtnText">Analyse</span>
+                </button>
+            </div>
+
+            <!-- Suggested query chips -->
+            <div class="suggestion-chips">
+                <button class="chip" onclick="useChip(this)">Reliance Industries Q4 FY2025 revenue</button>
+                <button class="chip" onclick="useChip(this)">Infosys net profit FY2025</button>
+                <button class="chip" onclick="useChip(this)">HDFC Bank NIM latest quarter</button>
+                <button class="chip" onclick="useChip(this)">Nifty 50 performance this year</button>
+                <button class="chip" onclick="useChip(this)">Bajaj Finance loan book growth</button>
+            </div>
+
+            <!-- Loading -->
+            <div class="research-loading" id="researchLoading">
+                <div class="spinner"></div>
+                <span class="loading-text">Searching trusted financial sources…</span>
+            </div>
+
+            <!-- Error -->
+            <div class="research-error" id="researchError"></div>
+
+            <!-- Answer -->
+            <div class="research-answer-box" id="researchAnswerBox">
+                <div class="answer-label">📊 Analysis</div>
+                <div class="answer-text" id="researchAnswerText"></div>
+            </div>
+
+            <!-- Sources -->
+            <div class="sources-box" id="sourcesBox">
+                <div class="sources-label">🔗 Sources</div>
+                <div class="source-list" id="sourceList"></div>
+            </div>
+
+            <!-- History -->
+            <div class="history-section" id="historySection" style="display:none;">
+                <div class="history-label">Recent Searches</div>
+                <div class="history-list" id="historyList"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- News Tab -->
+    <div class="tab-section" id="tab-news">
+        <div class="news-card">
+
+            <!-- Header -->
+            <div class="news-header-row">
+                <div class="news-header-left">
+                    <span class="news-icon">&#128240;</span>
+                    <div>
+                        <h2 class="news-title">Market News</h2>
+                        <p class="news-subtitle">Live Indian market &amp; global macro news - powered by Marketaux &amp; AI analysis</p>
+                    </div>
+                </div>
+                <button class="news-refresh-btn" id="newsRefreshBtn" onclick="loadNews()">
+                    <span id="newsRefreshIcon">&#8635;</span> Refresh
+                </button>
+            </div>
+
+            <!-- Loading -->
+            <div class="news-loading" id="newsLoading">
+                <div class="spinner"></div>
+                <span class="loading-text">Fetching latest market news&hellip;</span>
+            </div>
+
+            <!-- Error -->
+            <div class="research-error" id="newsError"></div>
+
+            <!-- AI Trend Summary Card -->
+            <div class="trend-card" id="trendCard" style="display:none;">
+                <div class="trend-card-top">
+                    <div class="trend-mood-badge" id="trendMoodBadge">
+                        <span id="trendMoodEmoji">&#128202;</span>
+                        <span id="trendMoodLabel">Analysing&hellip;</span>
+                    </div>
+                    <span class="trend-ai-label">AI Market Intelligence</span>
+                </div>
+                <p class="trend-summary-text" id="trendSummaryText"></p>
+                <span class="trend-timestamp" id="trendTimestamp"></span>
+            </div>
+
+            <!-- Filter pills -->
+            <div class="news-filter-row" id="newsFilterRow" style="display:none;">
+                <button class="news-filter-btn active" data-filter="all"      onclick="filterNews('all',this)">All</button>
+                <button class="news-filter-btn"        data-filter="india"    onclick="filterNews('india',this)">&#127470;&#127475; India</button>
+                <button class="news-filter-btn"        data-filter="global"   onclick="filterNews('global',this)">&#127760; Global</button>
+                <button class="news-filter-btn"        data-filter="positive" onclick="filterNews('positive',this)">&#128200; Positive</button>
+                <button class="news-filter-btn"        data-filter="negative" onclick="filterNews('negative',this)">&#128201; Negative</button>
+            </div>
+
+            <!-- News Grid -->
+            <div class="news-grid" id="newsGrid"></div>
+
+        </div>
+    </div>
+
+</div>
+
+<!-- Add to Portfolio Modal -->
+<div class="modal-overlay" id="addPortfolioModal">
+    <div class="modal">
+        <div class="modal-header">Add to Portfolio</div>
+        <div class="modal-subheader" id="modalStockName">Stock Name</div>
+        <div class="form-group">
+            <label for="quantityInput">Quantity</label>
+            <input type="number" id="quantityInput" placeholder="Enter number of shares" min="1" required>
+        </div>
+        <div class="form-group">
+            <label for="avgPriceInput">Average Price (₹)</label>
+            <input type="number" id="avgPriceInput" placeholder="Enter average purchase price" step="0.01" min="0" required>
+        </div>
+        <div class="modal-buttons">
+            <button class="modal-btn modal-btn-secondary" onclick="closeAddPortfolioModal()">Cancel</button>
+            <button class="modal-btn modal-btn-primary" onclick="addToPortfolio()">Add to Portfolio</button>
+        </div>
+    </div>
+</div>
+
+<!-- Update Holding Modal -->
+<div class="modal-overlay" id="updateHoldingModal">
+    <div class="modal">
+        <div class="modal-header">Update Holding</div>
+        <div class="modal-subheader" id="updateModalStockName">Stock Name</div>
+        <div class="form-group">
+            <label for="updateQuantityInput">Quantity</label>
+            <input type="number" id="updateQuantityInput" placeholder="Enter number of shares" min="1" required>
+        </div>
+        <div class="form-group">
+            <label for="updateAvgPriceInput">Average Price (₹)</label>
+            <input type="number" id="updateAvgPriceInput" placeholder="Enter average purchase price" step="0.01" min="0" required>
+        </div>
+        <div class="modal-buttons">
+            <button class="modal-btn modal-btn-secondary" onclick="closeUpdateHoldingModal()">Cancel</button>
+            <button class="modal-btn modal-btn-primary" onclick="updateHolding()">Update Holding</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay" id="deleteHoldingModal">
+    <div class="modal">
+        <div class="modal-header">Delete Holding</div>
+        <div class="modal-subheader" id="deleteModalStockName">Are you sure you want to delete this stock from your portfolio?</div>
+        <div style="margin:20px 0; padding:15px; background:#fff3cd; border-radius:8px; border-left:4px solid #ffc107;">
+            <strong style="color:#856404;">⚠️ Warning:</strong>
+            <p style="margin:5px 0 0 0; color:#856404; font-size:14px;">This action cannot be undone. The holding will be permanently removed from your portfolio.</p>
+        </div>
+        <div class="modal-buttons">
+            <button class="modal-btn modal-btn-secondary" onclick="closeDeleteHoldingModal()">Cancel</button>
+            <button class="modal-btn modal-btn-primary" style="background:#e74c3c;" onclick="deleteHolding()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Notification Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    let userData = null;
+    let currentStock = null;
+    let currentPeriod = '1d';
+    let stockChart = null;
+    let portfolioHoldings = [];
+    let currentQuoteData = null;
+    let currentHoldingId = null;
+
+    /* Toast */
+    function showToast(type, title, message) {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : '⚠';
+        toast.innerHTML = `
+            <div class="toast-icon">${icon}</div>
+            <div class="toast-content">
+                <div class="toast-title">${title}</div>
+                <div class="toast-message">${message}</div>
+            </div>
+            <button class="toast-close" onclick="closeToast(this)">×</button>`;
+        container.appendChild(toast);
+        setTimeout(() => removeToast(toast), 4000);
+    }
+    function closeToast(btn) { removeToast(btn.closest('.toast')); }
+    function removeToast(toast) {
+        toast.classList.add('removing');
+        setTimeout(() => toast.remove(), 300);
+    }
+
+    /* Auth */
+    async function checkAuth() {
+        const token = localStorage.getItem('access_token');
+        if (!token) { window.location.href = '/login'; return; }
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            userData = payload;
+            updateProfileInfo(payload.name || payload.sub || 'Institution', payload.email || '');
+
+            if (payload.email_verified === false) {
+                document.getElementById('verificationSection').style.display = 'flex';
+                document.getElementById('pendingBanner').style.display = 'none';
+                document.getElementById('dashboardContent').style.display = 'none';
+                return;
+            }
+            if (payload.status === 'PENDING_ADMIN_APPROVAL') {
+                document.getElementById('verificationSection').style.display = 'none';
+                document.getElementById('pendingBanner').style.display = 'block';
+                document.getElementById('dashboardContent').style.display = 'block';
+            } else if (payload.status === 'ACTIVE') {
+                document.getElementById('verificationSection').style.display = 'none';
+                document.getElementById('pendingBanner').style.display = 'none';
+                document.getElementById('dashboardContent').style.display = 'block';
+            } else if (payload.status === 'REJECTED') {
+                alert('Your institution registration has been rejected. Please contact support.');
+                logout();
+            }
+            await loadPortfolio();
+        } catch (error) {
+            console.error('Error decoding token:', error);
+            window.location.href = '/login';
+        }
+    }
+
+    /* Profile */
+    function updateProfileInfo(userName, email) {
+        document.getElementById('profileInitial').textContent = userName.charAt(0).toUpperCase();
+        document.getElementById('profileName').textContent = userName.split(' ')[0];
+        document.getElementById('dropdownName').textContent = userName;
+        document.getElementById('dropdownEmail').textContent = email;
+    }
+    function toggleProfileDropdown() {
+        document.getElementById('profileDropdown').classList.toggle('show');
+        document.getElementById('dropdownArrow').classList.toggle('open');
+    }
+    document.addEventListener('click', function(event) {
+        const pc = document.querySelector('.profile-container');
+        if (pc && !pc.contains(event.target)) {
+            document.getElementById('profileDropdown').classList.remove('show');
+            document.getElementById('dropdownArrow').classList.remove('open');
+        }
+    });
+    function logout() {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user_email');
+        window.location.href = '/login';
+    }
+    function goToVerification() { window.location.href = '/verify-email'; }
+
+    /* Nav tab switching */
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', function() {
+            if (document.getElementById('stockDetailsView').style.display !== 'none') {
+                closeStockDetails();
+            }
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            this.classList.add('active');
+            const tab = this.getAttribute('data-tab');
+            document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+            const target = document.getElementById('tab-' + tab);
+            if (target) target.classList.add('active');
+            if (tab === 'portfolio') loadPortfolio();
+            if (tab === 'news') loadNews();
+        });
+    });
+
+    /* Dark / Light mode */
+    (function () {
+        const toggle = document.getElementById('dmToggle');
+        const logo = document.getElementById('logoImage'); 
+        toggle.addEventListener('click', () => {
+            const dark = document.body.classList.toggle('dm-active');
+            toggle.classList.toggle('active', dark);
+
+            logo.classList.add('fade-out');
+
+            setTimeout(() => {
+                if (dark) {
+                    logo.src = "../static/img/logo.png";
+                } else {
+                logo.src = "../static/img/logo_outline.png";
+                }
+                logo.classList.remove('fade-out');
+            }, 300); 
+        });
+    })();
+
+    /* Periodic check */
+    setInterval(async () => {
+        const token = localStorage.getItem('access_token');
+        if (token) {
+            try { JSON.parse(atob(token.split('.')[1])); } catch (e) { console.error(e); }
+        }
+    }, 30000);
+
+    /* Stock Search */
+    const searchInput = document.getElementById('stockSearch');
+    const suggestionsContainer = document.getElementById('suggestionsContainer');
+    let searchTimeout;
+
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        clearTimeout(searchTimeout);
+        if (!query) { suggestionsContainer.classList.remove('show'); return; }
+        searchTimeout = setTimeout(() => searchStocks(query), 300);
+    });
+
+    async function searchStocks(query) {
+        try {
+            const resp = await fetch(`/api/stocks/search?q=${encodeURIComponent(query)}&limit=20`);
+            if (!resp.ok) throw new Error('Failed');
+            const data = await resp.json();
+            displaySuggestions(data.stocks, query);
+        } catch (e) {
+            suggestionsContainer.innerHTML = '<div class="no-results">Error loading stocks. Please try again.</div>';
+            suggestionsContainer.classList.add('show');
+        }
+    }
+
+    function displaySuggestions(stocks, query) {
+        if (!stocks.length) {
+            suggestionsContainer.innerHTML = '<div class="no-results">No stocks found</div>';
+            suggestionsContainer.classList.add('show');
+            return;
+        }
+        suggestionsContainer.innerHTML = stocks.map(s => `
+            <div class="suggestion-item" onclick="selectStock('${s.symbol}','${s.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+                <div>
+                    <div class="suggestion-name">${highlightMatch(s.name, query)}</div>
+                    <div class="suggestion-symbol">${s.symbol}</div>
+                </div>
+            </div>`).join('');
+        suggestionsContainer.classList.add('show');
+    }
+
+    function highlightMatch(text, query) {
+        return text.replace(new RegExp(`(${query})`, 'gi'), '<strong style="color:#667eea;">$1</strong>');
+    }
+
+    function selectStock(symbol, name) {
+        searchInput.value = `${name} (${symbol})`;
+        suggestionsContainer.classList.remove('show');
+        loadStockDetails(symbol, name);
+    }
+
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('.search-wrapper')) suggestionsContainer.classList.remove('show');
+    });
+
+    /* Load Stock Details */
+    async function loadStockDetails(symbol, name) {
+        currentStock = { symbol, name };
+        currentPeriod = '1d';
+
+        document.getElementById('stockDetailsView').style.display = 'block';
+        document.getElementById('portfolioContent').style.display = 'none';
+        document.getElementById('stockName').textContent = name;
+        document.getElementById('stockSymbol').textContent = symbol;
+
+        // Reset period buttons
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('[data-period="1d"]').classList.add('active');
+
+        await loadStockQuote(symbol);
+        await checkPortfolioStatus(symbol);
+        await loadStockMetrics(symbol);
+        await loadStockChart(symbol, '1d');
+    }
+
+    async function loadStockFromHolding(symbol, name) {
+        await loadStockDetails(symbol, name);
+    }
+
+    /* Stock Quote */
+    async function loadStockQuote(symbol) {
+        try {
+            const resp = await fetch(`/api/stocks/quote/${symbol}`);
+            if (!resp.ok) throw new Error('Failed');
+            const data = await resp.json();
+            currentQuoteData = data;
+            document.getElementById('currentPrice').textContent = `₹${data.current_price?.toFixed(2) || '---'}`;
+            const el = document.getElementById('priceChange');
+            if (data.change !== null && data.change_percent !== null) {
+                el.querySelector('.change-amount').textContent = data.change >= 0 ? `+₹${data.change.toFixed(2)}` : `₹${data.change.toFixed(2)}`;
+                el.querySelector('.change-percent').textContent = (data.change_percent >= 0 ? `(+${data.change_percent.toFixed(2)}%)` : `(${data.change_percent.toFixed(2)}%)`) + ' 1D';
+                el.className = data.change >= 0 ? 'price-change positive' : 'price-change negative';
+            }
+            updateDayRangeSlider(data.day_low, data.day_high, data.current_price);
+        } catch (e) {
+            console.error(e);
+            document.getElementById('currentPrice').textContent = '₹---';
+        }
+    }
+
+    /* Portfolio Status */
+    async function checkPortfolioStatus(symbol) {
+        try {
+            const resp = await fetch('/api/portfolio/holdings', {
+                headers: portfolioAuthHeaders()
+            });
+            if (!resp.ok) throw new Error('Not ok');
+            const data = await resp.json();
+            const holding = (data.holdings || []).find(h => h.symbol === symbol);
+            if (holding) {
+                document.getElementById('addPortfolioBtn').style.display = 'none';
+                document.getElementById('addedBadge').style.display = 'inline-flex';
+                displayHoldingsCard(holding);
+            } else {
+                document.getElementById('addPortfolioBtn').style.display = 'inline-block';
+                document.getElementById('addedBadge').style.display = 'none';
+                document.getElementById('portfolioHoldingsCard').style.display = 'none';
+            }
+        } catch (e) {
+            document.getElementById('addPortfolioBtn').style.display = 'inline-block';
+            document.getElementById('addedBadge').style.display = 'none';
+            document.getElementById('portfolioHoldingsCard').style.display = 'none';
+        }
+    }
+
+    function displayHoldingsCard(holding) {
+        const cp = currentQuoteData ? currentQuoteData.current_price : holding.current_price;
+        const invested = holding.quantity * holding.avg_price;
+        const current = holding.quantity * cp;
+        const returns = current - invested;
+        const pct = (returns / invested) * 100;
+
+        document.getElementById('holdingsQuantity').textContent = holding.quantity;
+        document.getElementById('holdingsAvgPrice').textContent = `₹${holding.avg_price.toFixed(2)}`;
+        document.getElementById('holdingsInvested').textContent = `₹${invested.toFixed(2)}`;
+        document.getElementById('holdingsCurrent').textContent = `₹${current.toFixed(2)}`;
+
+        const rEl = document.getElementById('holdingsReturns');
+        rEl.textContent = returns >= 0 ? `+₹${returns.toFixed(2)}` : `₹${returns.toFixed(2)}`;
+        rEl.className = returns >= 0 ? 'holdings-value positive' : 'holdings-value negative';
+
+        const cEl = document.getElementById('holdingsChangePercent');
+        cEl.textContent = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+        cEl.className = pct >= 0 ? 'holdings-value positive' : 'holdings-value negative';
+
+        document.getElementById('portfolioHoldingsCard').style.display = 'block';
+    }
+
+    /* Stock Metrics */
+    async function loadStockMetrics(symbol) {
+        try {
+            const resp = await fetch(`/api/stocks/metrics/${symbol}`);
+            if (!resp.ok) { useQuoteDataForDetails(); return; }
+            const d = await resp.json();
+
+            if (d.week_52_low && d.week_52_high && currentQuoteData)
+                update52WeekRangeSlider(d.week_52_low, d.week_52_high, currentQuoteData.current_price);
+            else if (currentQuoteData?.fifty_two_week_low && currentQuoteData?.fifty_two_week_high)
+                update52WeekRangeSlider(currentQuoteData.fifty_two_week_low, currentQuoteData.fifty_two_week_high, currentQuoteData.current_price);
+
+            document.getElementById('detailMarketCap').textContent = d.market_cap ? formatMarketCap(d.market_cap) : 'N/A';
+            document.getElementById('detailVolume').textContent = d.volume ? formatNumber(d.volume) : 'N/A';
+            document.getElementById('detailSector').textContent = d.sector || 'N/A';
+            document.getElementById('detailIndustry').textContent = d.industry || 'N/A';
+            document.getElementById('detailDividendYield').textContent = d.dividend_yield ? `${(d.dividend_yield).toFixed(2)}%` : 'N/A';
+            document.getElementById('detailPeRatio').textContent = d.pe_ratio ? d.pe_ratio.toFixed(2) : 'N/A';
+            document.getElementById('detailPbRatio').textContent = d.pb_ratio ? d.pb_ratio.toFixed(2) : 'N/A';
+
+            const pmEl = document.getElementById('detailProfitMargin');
+            if (d.profit_margin != null) { pmEl.textContent = `${(d.profit_margin*100).toFixed(2)}%`; pmEl.className = d.profit_margin >= 0 ? 'detail-value positive' : 'detail-value negative'; }
+            else { pmEl.textContent = 'N/A'; pmEl.className = 'detail-value'; }
+
+            const rgEl = document.getElementById('detailRevenueGrowth');
+            if (d.revenue_growth != null) { rgEl.textContent = `${(d.revenue_growth*100).toFixed(2)}%`; rgEl.className = d.revenue_growth >= 0 ? 'detail-value positive' : 'detail-value negative'; }
+            else { rgEl.textContent = 'N/A'; rgEl.className = 'detail-value'; }
+
+            document.getElementById('detailDebtToEquity').textContent = d.debt_to_equity ? d.debt_to_equity.toFixed(2) : 'N/A';
+            document.getElementById('detailBookValue').textContent = d.book_value_per_share ? `₹${d.book_value_per_share.toFixed(2)}` : 'N/A';
+        } catch (e) { useQuoteDataForDetails(); }
+    }
+
+    function useQuoteDataForDetails() {
+        if (!currentQuoteData) return;
+        document.getElementById('detailMarketCap').textContent = currentQuoteData.market_cap ? formatMarketCap(currentQuoteData.market_cap) : 'N/A';
+        document.getElementById('detailVolume').textContent = currentQuoteData.volume ? formatNumber(currentQuoteData.volume) : 'N/A';
+        ['detailSector','detailIndustry','detailPbRatio','detailProfitMargin','detailRevenueGrowth','detailDebtToEquity','detailBookValue'].forEach(id => document.getElementById(id).textContent = 'N/A');
+        document.getElementById('detailDividendYield').textContent = currentQuoteData.dividend_yield ? `${(currentQuoteData.dividend_yield*100).toFixed(2)}%` : 'N/A';
+        document.getElementById('detailPeRatio').textContent = currentQuoteData.pe_ratio ? currentQuoteData.pe_ratio.toFixed(2) : 'N/A';
+        if (currentQuoteData.fifty_two_week_low && currentQuoteData.fifty_two_week_high)
+            update52WeekRangeSlider(currentQuoteData.fifty_two_week_low, currentQuoteData.fifty_two_week_high, currentQuoteData.current_price);
+    }
+
+    /* Range Sliders */
+    function updateDayRangeSlider(low, high, current) {
+        if (!low || !high || !current) { document.getElementById('todayLowValue').textContent = '---'; document.getElementById('todayHighValue').textContent = '---'; return; }
+        document.getElementById('todayLowValue').textContent = `₹${low.toFixed(2)}`;
+        document.getElementById('todayHighValue').textContent = `₹${high.toFixed(2)}`;
+        document.getElementById('dayRangeMarker').style.left = `${Math.min(Math.max(((current-low)/(high-low))*100,0),100)}%`;
+    }
+    function update52WeekRangeSlider(low, high, current) {
+        if (!low || !high || !current) { document.getElementById('week52LowValue').textContent = '---'; document.getElementById('week52HighValue').textContent = '---'; return; }
+        document.getElementById('week52LowValue').textContent = `₹${low.toFixed(2)}`;
+        document.getElementById('week52HighValue').textContent = `₹${high.toFixed(2)}`;
+        document.getElementById('weekRangeMarker').style.left = `${Math.min(Math.max(((current-low)/(high-low))*100,0),100)}%`;
+    }
+
+    /* Chart */
+    async function loadStockChart(symbol, period) {
+        try {
+            const periodMap = {
+                '1d':{period:'1d',interval:'5m',label:'1D'},'1w':{period:'5d',interval:'30m',label:'1W'},
+                '1m':{period:'1mo',interval:'1d',label:'1M'},'6m':{period:'6mo',interval:'1d',label:'6M'},
+                '1y':{period:'1y',interval:'1d',label:'1Y'},'5y':{period:'5y',interval:'1wk',label:'5Y'},
+                'max':{period:'max',interval:'1mo',label:'MAX'}
+            };
+            const p = periodMap[period];
+            const resp = await fetch(`/api/stocks/history/${symbol}?period=${p.period}&interval=${p.interval}`);
+            if (!resp.ok) throw new Error('Failed');
+            const data = await resp.json();
+            if (data.data && data.data.length > 0) {
+                let change, changePct;
+                if (period === '1d' && currentQuoteData?.previous_close) {
+                    change = currentQuoteData.current_price - currentQuoteData.previous_close;
+                    changePct = (change / currentQuoteData.previous_close) * 100;
+                } else {
+                    const first = data.data[0].close;
+                    const last = currentQuoteData ? currentQuoteData.current_price : data.data[data.data.length-1].close;
+                    change = last - first; changePct = (change / first) * 100;
+                }
+                updatePriceChange(change, changePct, p.label);
+            }
+            renderChart(data.data, period);
+        } catch (e) { console.error(e); }
+    }
+
+    function updatePriceChange(change, pct, label) {
+        const el = document.getElementById('priceChange');
+        el.querySelector('.change-amount').textContent = change >= 0 ? `+₹${change.toFixed(2)}` : `₹${change.toFixed(2)}`;
+        el.querySelector('.change-percent').textContent = (pct >= 0 ? `(+${pct.toFixed(2)}%)` : `(${pct.toFixed(2)}%)`) + ' ' + label;
+        el.className = change >= 0 ? 'price-change positive' : 'price-change negative';
+    }
+
+    function renderChart(historyData, period) {
+        const ctx = document.getElementById('stockChart').getContext('2d');
+        if (stockChart) { stockChart.destroy(); }
+        const labels = historyData.map(d => {
+            const date = new Date(d.date);
+            if (period === '1d') return date.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+            if (period === '1w' || period === '1m') return date.toLocaleDateString('en-IN',{month:'short',day:'numeric'});
+            return date.toLocaleDateString('en-IN',{year:'numeric',month:'short'});
+        });
+        const prices = historyData.map(d => d.close);
+        const baseline = (period === '1d' && currentQuoteData?.previous_close) ? currentQuoteData.previous_close : prices[0];
+        const last = (period === '1d' && currentQuoteData) ? currentQuoteData.current_price : prices[prices.length-1];
+        const isUp = last >= baseline;
+        const grad = ctx.createLinearGradient(0,0,0,400);
+        grad.addColorStop(0, isUp ? 'rgba(39,174,96,0.3)' : 'rgba(231,76,60,0.3)');
+        grad.addColorStop(1, isUp ? 'rgba(39,174,96,0.01)' : 'rgba(231,76,60,0.01)');
+        stockChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets: [{ label:'Price', data:prices, borderColor: isUp?'#27ae60':'#e74c3c', backgroundColor:grad, borderWidth:2, fill:true, tension:0.4, pointRadius:0, pointHoverRadius:6 }] },
+            options: {
+                responsive:true, maintainAspectRatio:false,
+                plugins: { legend:{display:false}, tooltip:{mode:'index',intersect:false,backgroundColor:'rgba(0,0,0,0.8)',padding:12,titleColor:'#fff',bodyColor:'#fff',displayColors:false,callbacks:{label:c=>'Price: ₹'+c.parsed.y.toFixed(2)}} },
+                scales: { x:{grid:{display:false},ticks:{maxTicksLimit:8,color:'#999'}}, y:{position:'right',grid:{color:'rgba(0,0,0,0.05)'},ticks:{color:'#999',callback:v=>'₹'+v.toFixed(0)}} },
+                interaction:{mode:'index',intersect:false}
+            }
+        });
+    }
+
+    function changePeriod(period) {
+        currentPeriod = period;
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector(`[data-period="${period}"]`).classList.add('active');
+        if (currentStock) loadStockChart(currentStock.symbol, period);
+    }
+
+    function closeStockDetails() {
+        document.getElementById('stockDetailsView').style.display = 'none';
+        document.getElementById('portfolioContent').style.display = 'block';
+        searchInput.value = '';
+        currentStock = null;
+        if (stockChart) { stockChart.destroy(); stockChart = null; }
+        loadPortfolio();
+    }
+
+    /* Auth header helper */
+    function portfolioAuthHeaders(extra = {}) {
+        const token = localStorage.getItem('access_token');
+        return token ? { 'Authorization': `Bearer ${token}`, ...extra } : { ...extra };
+    }
+
+    /* Portfolio */
+    async function loadPortfolio() {
+        const content = document.getElementById('portfolioContent');
+        if (!content) return;
+        try {
+            const resp = await fetch('/api/portfolio/holdings', {
+                headers: portfolioAuthHeaders()
+            });
+            const data = await resp.json();
+            portfolioHoldings = data.holdings || [];
+            if (!portfolioHoldings.length) {
+                content.innerHTML = `
+                    <div class="empty-portfolio">
+                        <div class="empty-portfolio-icon">📊</div>
+                        <div class="empty-portfolio-text">No holdings yet</div>
+                        <div class="empty-portfolio-subtext">Search for stocks above and add them to your portfolio</div>
+                    </div>`;
+            } else {
+                displayPortfolio(data);
+            }
+        } catch (e) {
+            content.innerHTML = `
+                <div class="empty-portfolio">
+                    <div class="empty-portfolio-icon">❌</div>
+                    <div class="empty-portfolio-text">Error loading portfolio</div>
+                    <div class="empty-portfolio-subtext">Please try again later</div>
+                </div>`;
+        }
+    }
+
+    function displayPortfolio(data) {
+        const content = document.getElementById('portfolioContent');
+        const s = data.summary;
+        portfolioHoldings = data.holdings;
+        const rc = s.total_returns >= 0 ? 'positive' : 'negative';
+        const rs = s.total_returns >= 0 ? '+' : '';
+        const holdingsHTML = data.holdings.map(h => {
+            const vc = h.returns >= 0 ? 'positive' : 'negative';
+            const hs = h.returns >= 0 ? '+' : '';
+            return `
+                <div class="holding-item" onclick="loadStockFromHolding('${h.symbol}','${h.stock_name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+                    <div class="holding-main">
+                        <div class="holding-left">
+                            <div class="holding-actions" onclick="event.stopPropagation()">
+                                <button class="action-btn action-btn-edit" onclick="showUpdateModal(${h.id})">Edit</button>
+                                <button class="action-btn action-btn-delete" onclick="showDeleteModal(${h.id})">Delete</button>
+                            </div>
+                            <div class="holding-name">${h.stock_name}</div>
+                        </div>
+                        <div class="holding-current-value ${vc}">₹${h.current_value.toFixed(2)}</div>
+                    </div>
+                    <div class="holding-details">
+                        <span style="color:#999;">${h.quantity} shares</span>
+                        <span><span style="color:#999;">Invested:</span> ₹${h.invested_amount.toFixed(2)} | <span class="${vc}">${hs}₹${Math.abs(h.returns).toFixed(2)} (${hs}${h.returns_percent.toFixed(2)}%)</span></span>
+                    </div>
+                </div>`;
+        }).join('');
+        content.innerHTML = `
+            <div class="content-card">
+            <div class="portfolio-container">
+                <div class="portfolio-summary-card">
+                    <div class="holdings-header" style="margin-bottom:15px;">
+                        <span class="holdings-title">HOLDINGS</span>
+                        <span class="holdings-count">${s.total_holdings}</span>
+                    </div>
+                    <div class="portfolio-value">₹${s.total_current_value.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                    <div class="portfolio-metrics">
+                        <div class="metric-row"><span class="metric-label">Total returns</span><span class="metric-value ${rc}">${rs}₹${Math.abs(s.total_returns).toFixed(2)} (${rs}${s.total_returns_percent.toFixed(2)}%)</span></div>
+                        <div class="metric-row"><span class="metric-label">Invested</span><span class="metric-value">₹${s.total_invested.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+                    </div>
+                </div>
+                <div class="holdings-list-card">
+                    <div class="holdings-list-header"><div class="holdings-list-title">Your Holdings</div></div>
+                    ${holdingsHTML}
+                </div>
+            </div>
+            </div>`;
+    }
+
+    /* Add to Portfolio */
+    function showAddPortfolioModal() {
+        if (!currentStock) return;
+        document.getElementById('modalStockName').textContent = currentStock.name;
+        document.getElementById('quantityInput').value = '';
+        document.getElementById('avgPriceInput').value = '';
+        document.getElementById('addPortfolioModal').classList.add('show');
+    }
+    function closeAddPortfolioModal() { document.getElementById('addPortfolioModal').classList.remove('show'); }
+
+    async function addToPortfolio() {
+        const quantity = parseInt(document.getElementById('quantityInput').value);
+        const avgPrice = parseFloat(document.getElementById('avgPriceInput').value);
+        if (!quantity || quantity <= 0) { showToast('error','Invalid Quantity','Please enter a valid number of shares'); return; }
+        if (!avgPrice || avgPrice <= 0) { showToast('error','Invalid Price','Please enter a valid average price'); return; }
+        if (!currentStock) return;
+        try {
+            const resp = await fetch('/api/portfolio/holdings', {
+                method:'POST',
+                headers: portfolioAuthHeaders({'Content-Type':'application/json'}),
+                body: JSON.stringify({symbol:currentStock.symbol, stock_name:currentStock.name, quantity, avg_price:avgPrice})
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                showToast('success','Added to Portfolio!',`${currentStock.name} has been added to your portfolio`);
+                closeAddPortfolioModal();
+                await checkPortfolioStatus(currentStock.symbol);
+            } else {
+                showToast('error','Failed to Add', data.detail || 'Could not add stock to portfolio');
+            }
+        } catch (e) { showToast('error','Error','An error occurred. Please try again'); }
+    }
+
+    /* Update Holding */
+    function showUpdateModal(holdingId) {
+        const h = portfolioHoldings.find(h => h.id === holdingId);
+        if (!h) return;
+        currentHoldingId = holdingId;
+        document.getElementById('updateModalStockName').textContent = h.stock_name;
+        document.getElementById('updateQuantityInput').value = h.quantity;
+        document.getElementById('updateAvgPriceInput').value = h.avg_price;
+        document.getElementById('updateHoldingModal').classList.add('show');
+    }
+    function closeUpdateHoldingModal() { document.getElementById('updateHoldingModal').classList.remove('show'); currentHoldingId = null; }
+
+    async function updateHolding() {
+        const quantity = parseInt(document.getElementById('updateQuantityInput').value);
+        const avgPrice = parseFloat(document.getElementById('updateAvgPriceInput').value);
+        if (!quantity || quantity <= 0) { showToast('error','Invalid Quantity','Please enter a valid number of shares'); return; }
+        if (!avgPrice || avgPrice <= 0) { showToast('error','Invalid Price','Please enter a valid average price'); return; }
+        if (!currentHoldingId) return;
+        try {
+            const resp = await fetch(`/api/portfolio/holdings/${currentHoldingId}?quantity=${quantity}&avg_price=${avgPrice}`, {
+                method:'PUT',
+                headers: portfolioAuthHeaders({'Content-Type':'application/json'})
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                showToast('success','Updated Successfully!','Your holding has been updated');
+                closeUpdateHoldingModal();
+                await loadPortfolio();
+                if (currentStock) await checkPortfolioStatus(currentStock.symbol);
+            } else { showToast('error','Update Failed', data.detail || 'Could not update holding'); }
+        } catch (e) { showToast('error','Error','An error occurred. Please try again'); }
+    }
+
+    /* Delete Holding */
+    function showDeleteModal(holdingId) {
+        const h = portfolioHoldings.find(h => h.id === holdingId);
+        if (!h) return;
+        currentHoldingId = holdingId;
+        document.getElementById('deleteModalStockName').textContent = 'Are you sure you want to delete ' + h.stock_name + ' from your portfolio?';
+        document.getElementById('deleteHoldingModal').classList.add('show');
+    }
+    function closeDeleteHoldingModal() { document.getElementById('deleteHoldingModal').classList.remove('show'); currentHoldingId = null; }
+
+    async function deleteHolding() {
+        if (!currentHoldingId) return;
+        const deletedSymbol = portfolioHoldings.find(h => h.id === currentHoldingId)?.symbol;
+        try {
+            const resp = await fetch(`/api/portfolio/holdings/${currentHoldingId}`, {
+                method:'DELETE',
+                headers: portfolioAuthHeaders()
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                showToast('success','Deleted Successfully!','The holding has been removed from your portfolio');
+                closeDeleteHoldingModal();
+                await loadPortfolio();
+                if (currentStock && deletedSymbol === currentStock.symbol) await checkPortfolioStatus(currentStock.symbol);
+            } else { showToast('error','Delete Failed', data.detail || 'Could not delete holding'); }
+        } catch (e) { showToast('error','Error','An error occurred. Please try again'); }
+    }
+
+    /* Formatters */
+    function formatNumber(num) { return num.toLocaleString('en-IN'); }
+    function formatMarketCap(num) {
+        if (num >= 1e12) return '₹' + (num/1e12).toFixed(2) + 'T';
+        if (num >= 1e9) return '₹' + (num/1e9).toFixed(2) + 'B';
+        if (num >= 1e7) return '₹' + (num/1e7).toFixed(2) + 'Cr';
+        return '₹' + formatNumber(num);
+    }
+
+    /* Equity Research */
+    const researchHistory = [];
+    function useChip(btn) { document.getElementById('researchInput').value = btn.textContent.trim(); runResearch(); }
+
+    async function runResearch() {
+        const question = document.getElementById('researchInput').value.trim();
+        if (!question) return;
+        setResearchLoading(true); hideResearchResults();
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp = await fetch('/research/query', {
+                method:'POST',
+                headers:{'Content-Type':'application/json','Authorization': token ? `Bearer ${token}` : ''},
+                body: JSON.stringify({question})
+            });
+            if (!resp.ok) { const err = await resp.json().catch(()=>({})); throw new Error(err.detail || `Server error ${resp.status}`); }
+            const data = await resp.json();
+            document.getElementById('researchAnswerText').textContent = data.answer;
+            document.getElementById('researchAnswerBox').classList.add('visible');
+            if (data.sources?.length) {
+                const list = document.getElementById('sourceList');
+                list.innerHTML = '';
+                data.sources.slice(0,6).forEach(s => {
+                    const item = document.createElement('div');
+                    item.className = 'source-item';
+                    item.innerHTML = `<span class="source-dot"></span><a href="${s.url}" target="_blank" rel="noopener">${s.title || s.url}</a>`;
+                    list.appendChild(item);
+                });
+                document.getElementById('sourcesBox').classList.add('visible');
+            }
+            addToHistory(question);
+        } catch (err) {
+            const eb = document.getElementById('researchError');
+            eb.textContent = '⚠️ ' + (err.message || 'Something went wrong.');
+            eb.classList.add('visible');
+        } finally { setResearchLoading(false); }
+    }
+
+    function setResearchLoading(on) {
+        const btn = document.getElementById('researchBtn');
+        btn.disabled = on;
+        document.getElementById('researchLoading').classList.toggle('visible', on);
+        document.getElementById('researchBtnIcon').textContent = on ? '⏳' : '🔍';
+        document.getElementById('researchBtnText').textContent = on ? 'Searching…' : 'Analyse';
+    }
+    function hideResearchResults() {
+        ['researchAnswerBox','sourcesBox','researchError'].forEach(id => document.getElementById(id).classList.remove('visible'));
+        document.getElementById('sourceList').innerHTML = '';
+    }
+    function addToHistory(q) {
+        if (researchHistory.includes(q)) return;
+        researchHistory.unshift(q);
+        if (researchHistory.length > 10) researchHistory.pop();
+        document.getElementById('historySection').style.display = 'block';
+        const list = document.getElementById('historyList');
+        list.innerHTML = '';
+        researchHistory.forEach(item => {
+            const btn = document.createElement('button');
+            btn.className = 'history-item'; btn.textContent = item;
+            btn.onclick = () => { document.getElementById('researchInput').value = item; runResearch(); };
+            list.appendChild(btn);
+        });
+    }
+
+    /* ── News Tab ──────────────────────────────────────────────── */
+    let allNewsArticles = [];
+
+    async function loadNews() {
+        const btn = document.getElementById('newsRefreshBtn');
+        const icon = document.getElementById('newsRefreshIcon');
+        btn.disabled = true;
+        icon.classList.add('spinning');
+        document.getElementById('newsLoading').classList.add('visible');
+        document.getElementById('newsError').classList.remove('visible');
+        document.getElementById('trendCard').style.display = 'none';
+        document.getElementById('newsFilterRow').style.display = 'none';
+        document.getElementById('newsGrid').innerHTML = '';
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp  = await fetch('/news/feed', {
+                headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || `Server error ${resp.status}`);
+            }
+            const data = await resp.json();
+            allNewsArticles = data.articles || [];
+
+            // Render trend card
+            const mood = data.market_mood || 'cautious';
+            const badge = document.getElementById('trendMoodBadge');
+            badge.className = `trend-mood-badge ${mood}`;
+            document.getElementById('trendMoodEmoji').textContent  = data.mood_emoji || '📊';
+            document.getElementById('trendMoodLabel').textContent  = mood.charAt(0).toUpperCase() + mood.slice(1);
+            document.getElementById('trendSummaryText').textContent = data.trend_summary || '';
+            const fetchedAt = data.fetched_at
+                ? new Date(data.fetched_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                : '';
+            document.getElementById('trendTimestamp').textContent = fetchedAt ? `Updated at ${fetchedAt}` : '';
+            document.getElementById('trendCard').style.display = 'block';
+
+            // Render articles
+            renderNewsArticles(allNewsArticles);
+
+            // Show filters only if we have articles
+            if (allNewsArticles.length) {
+                document.getElementById('newsFilterRow').style.display = 'flex';
+                // Reset active filter to "All"
+                document.querySelectorAll('.news-filter-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('.news-filter-btn[data-filter="all"]').classList.add('active');
+            }
+
+        } catch (err) {
+            const eb = document.getElementById('newsError');
+            eb.textContent = '⚠️ ' + (err.message || 'Could not load news. Please try again.');
+            eb.classList.add('visible');
+        } finally {
+            document.getElementById('newsLoading').classList.remove('visible');
+            btn.disabled = false;
+            icon.classList.remove('spinning');
+        }
+    }
+
+    function renderNewsArticles(articles) {
+        const grid = document.getElementById('newsGrid');
+        grid.innerHTML = '';
+
+        if (!articles.length) {
+            grid.innerHTML = '<div class="news-empty">No articles found for this filter.</div>';
+            return;
+        }
+
+        articles.forEach((art, idx) => {
+            const sentimentLabel = art.sentiment.charAt(0).toUpperCase() + art.sentiment.slice(1);
+            const regionLabel    = art.is_global ? 'Global' : 'India';
+            const regionClass    = art.is_global ? 'global' : 'india';
+            const timeStr        = formatNewsTime(art.published_at);
+
+            const imgHtml = art.image_url
+                ? `<img class="news-article-img" src="${escHtml(art.image_url)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                   <div class="news-article-img-placeholder" style="display:none;">📰</div>`
+                : `<div class="news-article-img-placeholder">📰</div>`;
+
+            const card = document.createElement('div');
+            card.className = 'news-article-card';
+            card.dataset.region    = regionClass;
+            card.dataset.sentiment = art.sentiment;
+            card.style.animationDelay = `${idx * 40}ms`;
+            card.innerHTML = `
+                ${imgHtml}
+                <div class="news-article-body">
+                    <div class="news-article-meta">
+                        <div class="news-badge-row">
+                            <span class="news-badge ${regionClass}">${regionLabel}</span>
+                            <span class="news-badge ${art.sentiment}">${sentimentLabel}</span>
+                        </div>
+                        <span class="news-article-time">${timeStr}</span>
+                    </div>
+                    <p class="news-article-title">${escHtml(art.title)}</p>
+                    ${art.description ? `<p class="news-article-desc">${escHtml(art.description)}</p>` : ''}
+                    <div class="news-article-footer">
+                        <span class="news-source-name">${escHtml(art.source)}</span>
+                        <a class="news-read-link" href="${escHtml(art.url)}" target="_blank" rel="noopener">Read →</a>
+                    </div>
+                </div>`;
+            grid.appendChild(card);
+        });
+    }
+
+    function filterNews(filter, btn) {
+        document.querySelectorAll('.news-filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        let filtered = allNewsArticles;
+        if (filter === 'india')    filtered = allNewsArticles.filter(a => !a.is_global);
+        if (filter === 'global')   filtered = allNewsArticles.filter(a =>  a.is_global);
+        if (filter === 'positive') filtered = allNewsArticles.filter(a => a.sentiment === 'positive');
+        if (filter === 'negative') filtered = allNewsArticles.filter(a => a.sentiment === 'negative');
+
+        renderNewsArticles(filtered);
+    }
+
+    function formatNewsTime(iso) {
+        if (!iso) return '';
+        try {
+            const d    = new Date(iso);
+            const now  = new Date();
+            const diff = Math.floor((now - d) / 60000); // minutes
+            if (diff < 1)  return 'Just now';
+            if (diff < 60) return `${diff}m ago`;
+            if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
+            return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        } catch { return ''; }
+    }
+
+    function escHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    /* Init */
+    window.addEventListener('DOMContentLoaded', checkAuth);
+</script>
+
+<!-- Load Logout Animation Script -->
+<script src="/static/js/logoutanimate.js"></script>
+{% endblock %}

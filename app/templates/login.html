@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    :root {
+        --bgColor: transparent;
+        --inputColor: rgba(0, 180, 255, 0.6);
+        --textColor: #e6f7ff;
+        --size: 1.5rem;
+    }
+
+    body {
+        background-image: url('../static/img/bull.jpg');
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+        overflow-y: hidden;
+        height: 100vh;
+        transition: background 0.5s ease;
+    }
+
+    body.dark-mode {
+        background-image: none;
+        background-color: #000;
+    }
+
+    body.dark-mode .container {
+        color: #fff;
+    }
+
+    /* Move everything up */
+    .container {
+        margin-top: -180px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        transition: color 0.5s ease;
+    }
+
+    /* Login card */
+    .auth-form {
+        background: rgba(0, 0, 0, 0.20);
+        backdrop-filter: blur(5px);
+        padding: 18px 30px 12px;
+        border-radius: 12px;
+        width: 250px;
+        box-shadow: 0 0 20px rgba(0, 180, 255, 0.4);
+        transition: all 0.5s ease;
+    }
+
+    body.dark-mode .auth-form {
+        background: rgba(0, 0, 0, 0.8);
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+    }
+
+    .auth-title {
+        color: #e6f7ff;
+        margin-top: 0;
+        margin-bottom: 10px;
+        text-shadow: 0 0 8px rgba(0, 180, 255, 0.8);
+        transition: all 0.5s ease;
+    }
+
+    body.dark-mode .auth-title {
+        color: #fff;
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    }
+
+    .password-wrapper {
+        position: relative;
+        margin-bottom: 12px;
+    }
+
+    .auth-form input {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 180, 255, 0.6);
+        border-radius: 6px;
+        color: #ffffff;
+        outline: none;
+        transition: all 0.5s ease;
+    }
+
+    .password-wrapper input {
+        padding-right: 0.7rem;
+        margin-bottom: 0;
+    }
+
+    body.dark-mode .auth-form input {
+        border-color: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .auth-form input::placeholder {
+        color: #bfe9ff;
+        transition: color 0.5s ease;
+    }
+
+    body.dark-mode .auth-form input::placeholder {
+        color: #ccc;
+    }
+
+    .auth-form input:focus {
+        border-color: #4fd1ff;
+        box-shadow: 0 0 8px rgba(79, 209, 255, 0.8);
+    }
+
+    body.dark-mode .auth-form input:focus {
+        border-color: #fff;
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    }
+
+    .btn {
+        width: 20.5em;
+        padding: 10px;
+        background: linear-gradient(135deg, #00b4ff, #0072ff);
+        border: none;
+        border-radius: 6px;
+        color: #fff;
+        font-weight: bold;
+        cursor: pointer;
+        box-shadow: 0 0 10px rgba(0, 180, 255, 0.7);
+        transition: all 0.5s ease;
+    }
+
+    body.dark-mode .btn {
+        background: linear-gradient(135deg, #fff, #ccc);
+        color: #000;
+        box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    }
+
+    .btn:hover {
+        opacity: 0.9;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    a {
+        color: #7dd3ff;
+        text-decoration: none;
+        transition: color 0.5s ease;
+    }
+
+    body.dark-mode a {
+        color: #fff;
+    }
+
+    a:hover {
+        text-decoration: underline;
+    }
+
+    p {
+        margin-top: 8px;
+    }
+
+    /* Eye icon styles */
+    .eye {
+        position: absolute;
+        right: 0.1rem;
+        top: 50%;
+        width: var(--size);
+        height: var(--size);
+        border: 2px solid #4fd1ff;
+        border-radius: calc(var(--size) / 1.5) 0;
+        transform: translateY(-50%) rotate(45deg);
+        cursor: pointer;
+        z-index: 10;
+        transition: border-color 0.5s ease;
+    }
+
+    body.dark-mode .eye {
+        border-color: #fff;
+    }
+
+    .eye:before, .eye:after {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        margin: auto;
+        border-radius: 100%;
+        transition: background 0.5s ease;
+    }
+
+    .eye:before {
+        width: 60%;
+        height: 60%;
+        background: #4fd1ff;
+    }
+
+    body.dark-mode .eye:before {
+        background: #fff;
+    }
+
+    .eye:after {
+        width: 30%;
+        height: 30%;
+        background: transparent;
+    }
+
+    body.dark-mode .eye:after {
+        background: #000;
+    }
+
+    /* Spotlight effect */
+    .spotlight-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+    }
+
+    .spotlight-overlay.active {
+        opacity: 1;
+    }
+
+    .spotlight-beam {
+        position: absolute;
+        width: 0;
+        height: 0;
+        border-style: solid;
+        border-width: 0;
+        opacity: 0;
+        transition: all 0.5s ease;
+        right: 1rem;  /* Same as eye position */
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        z-index: 5;
+    }
+
+    body.dark-mode .spotlight-beam {
+        opacity: 1;
+        border-width: 60px 0 60px 500px;
+        border-color: transparent transparent transparent rgba(255, 255, 0, 0.6);
+    }
+
+    /* Success message */
+    .success-message {
+        background: rgba(0, 255, 100, 0.15);
+        border: 1px solid rgba(0, 255, 100, 0.5);
+        color: #ccffdd;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        text-align: center;
+        font-size: 0.9em;
+        display: none;
+        transition: all 0.5s ease;
+    }
+
+    body.dark-mode .success-message {
+        background: rgba(0, 255, 100, 0.2);
+        border-color: rgba(0, 255, 100, 0.7);
+        color: #ccffdd;
+    }
+
+    /* Error message */
+    .error-message {
+        background: rgba(255, 0, 0, 0.15);
+        border: 1px solid rgba(255, 0, 0, 0.5);
+        color: #ffcccc;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        text-align: center;
+        font-size: 0.9em;
+        display: none;
+        transition: all 0.5s ease;
+    }
+
+    body.dark-mode .error-message {
+        background: rgba(255, 0, 0, 0.2);
+        border-color: rgba(255, 0, 0, 0.7);
+        color: #ffcccc;
+    }
+</style>
+
+<div class="spotlight-overlay" id="spotlightOverlay">
+</div>
+
+<div class="container">
+    
+    <form id="loginForm" class="auth-form">
+        <h3 class="auth-title">Login</h3>
+        
+        <div class="success-message" id="successMessage"></div>
+        <div class="error-message" id="errorMessage"></div>
+        
+        <input type="email" name="email" placeholder="Email" required>
+        
+        <div class="password-wrapper">
+            <input type="password" id="password" name="password" placeholder="Password" required>
+            <div class="spotlight-beam"></div>
+            <div class="eye" id="togglePassword"></div>
+        </div>
+        
+        <button class="btn" type="submit" id="submitBtn">Login</button>
+    </form>
+
+    <p>
+        <a href="/register">Sign Up</a>
+    </p>
+    <p>
+        <a href="/forgot">Forgot Password?</a>
+    </p>
+</div>
+
+<script>
+    const togglePassword = document.getElementById('togglePassword');
+    const passwordInput = document.getElementById('password');
+    const body = document.body;
+    const spotlightOverlay = document.getElementById('spotlightOverlay');
+    const loginForm = document.getElementById('loginForm');
+    const successMessage = document.getElementById('successMessage');
+    const errorMessage = document.getElementById('errorMessage');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    // Check for success message from URL parameters (from registration)
+    window.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const message = urlParams.get('message');
+        
+        if (message) {
+            successMessage.textContent = message;
+            successMessage.style.display = 'block';
+            
+            // Remove the message from URL without refreshing
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    });
+    
+    // Password visibility toggle
+    togglePassword.addEventListener('click', function() {
+        // Toggle password visibility
+        const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+        passwordInput.setAttribute('type', type);
+        
+        // Toggle dark mode and spotlight
+        body.classList.toggle('dark-mode');
+        spotlightOverlay.classList.toggle('active');
+    });
+
+    // Login form submission
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        // Disable submit button
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Logging in...';
+        
+        // Hide previous messages
+        successMessage.style.display = 'none';
+        errorMessage.style.display = 'none';
+        
+        // Get form data
+        const formData = new FormData(loginForm);
+        const data = {
+            email: formData.get('email'),
+            password: formData.get('password')
+        };
+        
+        try {
+            const response = await fetch('/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                // Login successful - store token
+                localStorage.setItem('access_token', result.access_token);
+                
+                // Store user email for verification purposes
+                localStorage.setItem('user_email', data.email);
+                
+                // Decode the JWT to get the role (simple base64 decode of payload)
+                const tokenParts = result.access_token.split('.');
+                const payload = JSON.parse(atob(tokenParts[1]));
+                const role = payload.role;
+                
+                // Redirect based on role
+                if (role === 'CUSTOMER') {
+                    window.location.href = '/dashboard/customer';
+                } else if (role === 'INSTITUTION') {
+                    window.location.href = '/dashboard/institution';
+                } else if (role === 'ADMIN') {
+                    window.location.href = '/dashboard/admin';
+                } else {
+                    // Default redirect
+                    window.location.href = '/dashboard/customer';
+                }
+            } else {
+                // Show error message
+                errorMessage.textContent = result.detail || 'Invalid credentials. Please try again.';
+                errorMessage.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            errorMessage.textContent = 'An error occurred. Please try again.';
+            errorMessage.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Login';
+        }
+    });
+</script>
+{% endblock %}
