@@ -31,7 +31,7 @@ The platform supports three distinct user roles: **Customer**, **Financial Insti
 ## Key Features
 
 ### 👤 Customer
-- Search stocks and view detailed price charts
+- Search stocks and view detailed price charts with full fundamental metrics
 - **Portfolio Management**:
   - Number of holdings
   - Total portfolio value (invested amount + returns)
@@ -57,7 +57,7 @@ The platform supports three distinct user roles: **Customer**, **Financial Insti
   - Per-stock: quantity, invested amount, average buy price, total returns, current value
   - Fundamental metrics: Today's Low/High, 52-Week Low/High, Market Cap, Volume, Sector, Industry, Dividend Yield, P/E Ratio, P/B Ratio, Profit Margin, Revenue Growth, Debt-to-Equity, Book Value/Share
 - **Equity Research Tool**: AI-powered research interface for any stock market topic (powered by Groq + Tavily)
-- **News Section** (identical to Customer): AI-summarised, sentiment-classified market news
+- **News Section** with AI-generated summaries and sentiment classification (All, Indian, Global, Positive, Negative)
 
 ### 🔐 Admin
 - View all registered users in the system
@@ -121,7 +121,7 @@ Before you begin, make sure you have the following installed:
   ```bash
   pip install uv
   ```
-  Or using the official installer:
+  Or using the official installer(pip command above is faster and error free):
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
@@ -138,22 +138,18 @@ git clone https://github.com/GitUnni/stock-market-trend-prediction-system.git
 cd stock-market-trend-prediction-system
 ```
 
-### 2. Create and Activate a Virtual Environment using uv
+### 2. Create a Virtual Environment using uv
 
 ```bash
 uv venv
 ```
 
-Activate the virtual environment:
+> No need to manually activate the virtual environment. `uv run` (used in the next steps) automatically resolves and uses the project's `.venv` for you without any conflicts. If you have installed python extension in vscode then it will automatically activate virtual environment each time a new terminal is opened. To deactivate it simply type the below command: 
 
-- **macOS / Linux:**
-  ```bash
-  source .venv/bin/activate
-  ```
-- **Windows:**
-  ```bash
-  .venv\Scripts\activate
-  ```
+```bash
+deactivate
+```
+> This will deactivate any conflicting virtual env and run cleanly the `.venv` we will use `uv run` (used in the next steps)
 
 ### 3. Install Dependencies
 
@@ -184,7 +180,7 @@ Then populate it with your keys (see [Environment Variables](#environment-variab
 
 ## Environment Variables
 
-Create a file at `app/.env` with the following contents. Replace each `your_key` / `your_gmail` with your actual credentials without any space and "":
+Create a file at `app/.env` with the following contents. Replace each `your_key` / `your_gmail` with your actual credentials without any space and `""`:
 
 ```env
 # Groq API key — used in research.py for AI-powered Equity Research Tool
@@ -224,15 +220,22 @@ SECRET_KEY=your_key
 From the **root directory** of the project (where `pyproject.toml` is located), run:
 
 ```bash
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 The application will start at: **[http://localhost:8000](http://localhost:8000)**
 
 - `--reload` enables hot-reloading during development (auto-restarts on code changes)
-- To run on a different port: `uvicorn app.main:app --reload --port 8080`
+- To run on a different port: `uv run uvicorn app.main:app --reload --port 8080`
 
 ---
+
+Individual scripts to run for populating the database after running 
+```bash      
+uv run python -m app.sync_stocks		#Scraping NSE's stock data into stock_info table daily update
+uv run python -m app.manualadd			#Adding admin manually
+uv run python -m app.update_stock_metrics	#Stock metrics daily update
+```
 
 ## User Roles
 
@@ -243,7 +246,7 @@ Registers directly and gets immediate access to stock search, price prediction, 
 Registers and submits a request for approval. **The account remains inactive until the Admin approves the request.** Upon approval, the Financial Institution gains access to portfolio management, equity research, and news features.
 
 ### Admin
-A pre-configured admin account manages user oversight, approves or rejects Financial Institution registration requests, and can delete users from the system.
+A pre-configured admin (manualadd.py) account manages user oversight, approves or rejects Financial Institution registration requests, and can delete users from the system.
 
 ---
 
