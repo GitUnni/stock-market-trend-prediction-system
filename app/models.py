@@ -36,24 +36,6 @@ class StockInfo(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-
-class StockPrice(Base):
-    __tablename__ = "stock_prices"
-
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, index=True)
-    date = Column(Date, index=True)
-
-    open = Column(Float)
-    high = Column(Float)
-    low = Column(Float)
-    close = Column(Float)
-    volume = Column(Float)
-
-    __table_args__ = (
-        UniqueConstraint("symbol", "date", name="uq_symbol_date"),
-    )
-
 class Portfolio(Base):
     """
     Table to store user's stock holdings/portfolio
