@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from app.database import Base, engine
-from app import models
 from app.routes.auth import router as auth_router
 from app.routes.pages import router as pages_router
 from app.routes.stocks import router as stocks_router
