@@ -452,7 +452,79 @@
 
     .content-card p {
         font-size: 16px;
-        color: var(--text-secondary);
+    }
+
+    /* ── Company Logo ── */
+    .company-logo-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+
+    .company-logo-img {
+        width: 56px;
+        height: 56px;
+        object-fit: contain;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.80);
+        border: 1px solid rgba(209, 217, 230, 0.60);
+        box-shadow: 4px 4px 12px var(--shadow-dark), -2px -2px 8px var(--shadow-light);
+        padding: 6px;
+        transition: box-shadow 0.3s;
+    }
+
+    .company-logo-img:hover {
+        box-shadow: 6px 6px 16px var(--shadow-dark), -4px -4px 12px var(--shadow-light);
+    }
+
+    .company-logo-placeholder {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        background: var(--accent-bg);
+        border: 1px solid rgba(209, 217, 230, 0.60);
+        box-shadow: 4px 4px 12px var(--shadow-dark), -2px -2px 8px var(--shadow-light);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--accent);
+        flex-shrink: 0;
+    }
+
+    .company-logo-skeleton {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        background: linear-gradient(90deg, var(--shadow-dark) 25%, #FFFFFF 50%, var(--shadow-dark) 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.4s infinite;
+        border: 1px solid rgba(209, 217, 230, 0.50);
+        flex-shrink: 0;
+    }
+
+    @keyframes shimmer {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    .logo-attribution {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin-top: 3px;
+    }
+
+    .logo-attribution a {
+        color: var(--accent);
+        text-decoration: none;
+        opacity: 0.75;
+    }
+
+    .logo-attribution a:hover {
+        opacity: 1;
+        text-decoration: underline;
     }
 
     /* ── Stock Details View ── */
@@ -2021,6 +2093,7 @@
         box-shadow: 8px 8px 24px rgba(30,45,69,0.30), -4px -4px 12px rgba(255,255,255,0.60);
         position: relative;
         overflow: hidden;
+        border-left: 7.5px solid #81a6a4;
     }
 
     /* Decorative glass bubble on trend card */
@@ -2140,6 +2213,309 @@
     .news-read-link { font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
     .news-read-link:hover { opacity: 0.75; text-decoration: underline; }
     .news-empty { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 15px; }
+
+    /* ── Miscellaneous layout ── */
+    .misc-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 28px;
+        align-items: stretch;
+        width: 100%;
+    }
+    @media (max-width: 900px) {
+        .misc-grid { grid-template-columns: 1fr; }
+    }
+    
+    /* ── Shared misc-card ── */
+    .misc-card {
+        background: var(--surface-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 15px;
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+        transition: box-shadow 0.35s;
+    }
+    .misc-card:hover { box-shadow: var(--shadow-card-h); }
+    
+    .misc-card-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 20px 24px 16px;
+        border-bottom: 1px solid rgba(209,217,230,0.45);
+        background: rgba(255,255,255,0.30);
+    }
+    .misc-card-header h3 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: .3px;
+    }
+    .misc-card-icon {
+        font-size: 20px;
+        line-height: 1;
+    }
+    
+    /* ── Sub-tab pills ── */
+    .misc-tabs {
+        display: flex;
+        gap: 6px;
+        padding: 14px 20px 0;
+        flex-wrap: wrap;
+    }
+    .misc-tab-btn {
+        padding: 7px 16px;
+        border: none;
+        border-radius: 20px;
+        font-size: 12.5px;
+        font-weight: 600;
+        cursor: pointer;
+        background: var(--bg);
+        color: var(--text-secondary);
+        box-shadow: var(--shadow-btn);
+        transition: all 0.25s;
+        white-space: nowrap;
+    }
+    .misc-tab-btn:hover {
+        color: var(--accent);
+        box-shadow: var(--shadow-btn-h);
+    }
+    .misc-tab-btn.active {
+        background: var(--bg);
+        color: var(--accent);
+        box-shadow: var(--shadow-inset);
+    }
+    
+    /* ── Misc table ── */
+    .misc-table-wrap {
+        padding: 14px 20px 20px;
+        overflow-x: auto;
+        min-height: 220px;
+    }
+    .misc-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12.5px;
+    }
+    .misc-table th {
+        text-align: left;
+        padding: 8px 10px;
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .6px;
+        border-bottom: 2px solid rgba(209,217,230,0.50);
+        white-space: nowrap;
+    }
+    .misc-table td {
+        padding: 9px 10px;
+        color: var(--text-primary);
+        border-bottom: 1px solid rgba(209,217,230,0.28);
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .misc-table tr:last-child td { border-bottom: none; }
+    .misc-table tr:hover td { background: rgba(61,107,158,0.04); }
+    
+    /* ── Misc status badges (IPO) ── */
+    .misc-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .3px;
+    }
+    .misc-badge.open     { background: rgba(39,174,96,.12);  color: #1e8449; }
+    .misc-badge.closed   { background: rgba(189,195,199,.18); color: var(--text-secondary); }
+    .misc-badge.upcoming { background: rgba(243,156,18,.12); color: #d68910; }
+    
+    /* ── Change colours (market trends) ── */
+    .misc-pos { color: var(--positive); font-weight: 600; }
+    .misc-neg { color: var(--negative); font-weight: 600; }
+    .misc-neu { color: var(--text-muted); }
+    
+    /* ── Loading / empty / error states ── */
+    .misc-loading,
+    .misc-empty,
+    .misc-error {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 160px;
+        font-size: 13px;
+    }
+    .misc-loading { color: var(--text-muted); }
+    .misc-empty   { color: var(--text-muted); }
+    .misc-error   { color: var(--negative);   }
+    
+    .misc-spinner {
+        width: 28px;
+        height: 28px;
+        border: 3px solid rgba(61,107,158,0.15);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: miscSpin 0.8s linear infinite;
+    }
+    @keyframes miscSpin { to { transform: rotate(360deg); } }
+    
+    /* ── Market-trends rank chip ── */
+    .misc-rank {
+        display: inline-block;
+        width: 22px;
+        height: 22px;
+        line-height: 22px;
+        text-align: center;
+        border-radius: 50%;
+        background: var(--bg);
+        box-shadow: var(--shadow-btn);
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--accent);
+    }
+
+    /* ── IPO rich detail cards ── */
+    .ipo-list { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 20px; }
+
+    .ipo-detail-card {
+        border-radius: 12px;
+        background: rgba(255,255,255,0.55);
+        border: 1px solid rgba(209,217,230,0.55);
+        box-shadow: 3px 3px 10px #D1D9E6, -2px -2px 8px #FFFFFF;
+        overflow: hidden;
+        transition: box-shadow 0.25s;
+    }
+    .ipo-detail-card:hover { box-shadow: 5px 5px 16px #D1D9E6, -3px -3px 12px #FFFFFF; }
+
+    .ipo-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 13px 16px;
+        cursor: pointer;
+        user-select: none;
+    }
+    .ipo-card-header:hover { background: rgba(61,107,158,0.04); }
+    .ipo-card-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .ipo-card-logo {
+        width: 34px; height: 34px; border-radius: 8px;
+        object-fit: contain; background: #fff;
+        border: 1px solid rgba(209,217,230,0.5);
+        flex-shrink: 0;
+    }
+    .ipo-card-logo-placeholder {
+        width: 34px; height: 34px; border-radius: 8px;
+        background: var(--accent-bg); display: flex; align-items: center;
+        justify-content: center; font-size: 14px; flex-shrink: 0;
+        border: 1px solid rgba(209,217,230,0.4);
+    }
+    .ipo-card-name { font-size: 13.5px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ipo-card-type { font-size: 10.5px; color: var(--text-muted); font-weight: 600; margin-top: 1px; }
+    .ipo-card-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .ipo-card-price { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+    .ipo-expand-chevron {
+        width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+        color: var(--text-muted); transition: transform 0.25s; flex-shrink: 0;
+    }
+    .ipo-expand-chevron.open { transform: rotate(180deg); }
+
+    /* Collapsible body */
+    .ipo-card-body { display: none; border-top: 1px solid rgba(209,217,230,0.4); padding: 0 16px 14px; }
+    .ipo-card-body.open { display: block; }
+
+    /* Quick info pills row */
+    .ipo-quick-row {
+        display: flex; gap: 8px; flex-wrap: wrap;
+        padding: 10px 0 4px;
+    }
+    .ipo-quick-pill {
+        display: flex; align-items: center; gap: 5px;
+        background: var(--bg);
+        border-radius: 8px;
+        padding: 5px 10px;
+        font-size: 11.5px;
+        color: var(--text-secondary);
+        box-shadow: 2px 2px 6px #D1D9E6, -2px -2px 6px #FFFFFF;
+        white-space: nowrap;
+    }
+    .ipo-quick-pill span.lbl { color: var(--text-muted); font-size: 10.5px; margin-right: 2px; }
+
+    /* Accordion sections */
+    .ipo-accordions { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+    .ipo-acc-item {
+        border-radius: 9px;
+        border: 1px solid rgba(209,217,230,0.45);
+        overflow: hidden;
+        background: rgba(255,255,255,0.35);
+    }
+    .ipo-acc-trigger {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 9px 13px; cursor: pointer; user-select: none;
+        font-size: 12px; font-weight: 700; color: var(--accent);
+        letter-spacing: .2px;
+    }
+    .ipo-acc-trigger:hover { background: rgba(61,107,158,0.06); }
+    .ipo-acc-trigger .acc-icon { font-size: 14px; margin-right: 7px; }
+    .ipo-acc-trigger .acc-chevron { font-size: 11px; color: var(--text-muted); transition: transform 0.22s; }
+    .ipo-acc-trigger.open .acc-chevron { transform: rotate(180deg); }
+
+    .ipo-acc-body { display: none; padding: 10px 13px 12px; border-top: 1px solid rgba(209,217,230,0.35); }
+    .ipo-acc-body.open { display: block; }
+
+    /* Schedule / Issue size 2-col grid */
+    .ipo-kv-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 6px 14px;
+    }
+    .ipo-kv { display: flex; flex-direction: column; gap: 1px; }
+    .ipo-kv .kv-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+    .ipo-kv .kv-value { font-size: 12.5px; color: var(--text-primary); font-weight: 600; }
+
+    /* About company text */
+    .ipo-about-text {
+        font-size: 12.5px; color: var(--text-secondary); line-height: 1.65;
+        max-height: 120px; overflow-y: auto;
+    }
+    .ipo-about-text::-webkit-scrollbar { width: 4px; }
+    .ipo-about-text::-webkit-scrollbar-thumb { background: rgba(209,217,230,0.8); border-radius: 4px; }
+
+    /* Strengths / Risks list */
+    .ipo-bullet-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+    .ipo-bullet-list li {
+        font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+        padding-left: 16px; position: relative;
+    }
+    .ipo-bullet-list li::before {
+        content: '•'; position: absolute; left: 4px;
+        font-size: 14px; line-height: 1.3;
+    }
+    .ipo-bullet-list.strengths li::before { color: var(--positive); }
+    .ipo-bullet-list.risks li::before { color: var(--negative); }
+
+    /* GMP trend mini-table */
+    .ipo-gmp-wrap { display: flex; gap: 16px; flex-wrap: wrap; }
+    .ipo-gmp-trends { flex: 1; min-width: 160px; }
+    .ipo-gmp-trends table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    .ipo-gmp-trends th { color: var(--text-muted); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; padding: 3px 6px; border-bottom: 1px solid rgba(209,217,230,0.5); }
+    .ipo-gmp-trends td { padding: 4px 6px; color: var(--text-primary); border-bottom: 1px solid rgba(209,217,230,0.2); }
+    .ipo-gmp-trends tr:last-child td { border-bottom: none; }
+
+    .ipo-sub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 7px; margin-top: 4px; }
+    .ipo-sub-item {
+        background: var(--bg); border-radius: 8px; padding: 8px 10px;
+        box-shadow: 2px 2px 6px #D1D9E6, -2px -2px 6px #FFFFFF;
+    }
+    .ipo-sub-item .sub-cat { font-size: 10px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+    .ipo-sub-item .sub-val { font-size: 14px; font-weight: 800; color: var(--accent); margin: 2px 0; }
+    .ipo-sub-item .sub-detail { font-size: 10.5px; color: var(--text-secondary); }
 </style>
 
 <!-- Navbar -->
@@ -2150,6 +2526,7 @@
             <li class="nav-item active" data-tab="portfolio">Portfolio</li>
             <li class="nav-item" data-tab="screener">Screener</li>
             <li class="nav-item" data-tab="news">News</li>
+            <li class="nav-item" data-tab="miscellaneous">Miscellaneous</li>
         </ul>
     </div>
 
@@ -2271,6 +2648,16 @@
                 <!-- Back Button -->
                 <div class="back-button" onclick="closeStockDetails()">
                     ← Back to Search
+                </div>
+
+                <!-- Company Logo -->
+                <div class="company-logo-wrapper" id="companyLogoWrapper">
+                    <div class="company-logo-skeleton" id="companyLogoSkeleton"></div>
+                    <div>
+                        <div class="logo-attribution">
+                            <a href="https://www.allinvestview.com/tools/ticker-logos/" target="_blank" rel="noopener">Logos by AllInvestView</a>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Stock Header -->
@@ -2509,7 +2896,7 @@
                             <div class="model-tab"        data-tab="ensemble"   onclick="switchPredictTab('ensemble')">🤝 Ensemble</div>
                         </div>
 
-                        <!-- ─────── TAB 1: Forecast ─────── -->
+                        <!-- TAB 1: Forecast -->
                         <div class="model-tab-panel active" id="predict-tab-forecast">
                             <div class="predict-chart-wrapper">
                                 <div id="predictChartDiv"></div>
@@ -2534,7 +2921,7 @@
                             </div>
                         </div>
 
-                        <!-- ─────── TAB 2: Validation Metrics ─────── -->
+                        <!-- TAB 2: Validation Metrics -->
                         <div class="model-tab-panel" id="predict-tab-validation">
                             <div class="predict-metrics-section">
 
@@ -2606,7 +2993,7 @@
                             </div>
                         </div>
 
-                        <!-- ─────── TAB 3: Backtest ─────── -->
+                        <!-- TAB 3: Backtest -->
                         <div class="model-tab-panel" id="predict-tab-backtest">
                             <!-- Backtest chart -->
                             <div class="predict-chart-wrapper">
@@ -2633,7 +3020,7 @@
                             </div>
                         </div>
 
-                        <!-- ─────── TAB 4: Ensemble ─────── -->
+                        <!-- TAB 4: Ensemble -->
                         <div class="model-tab-panel" id="predict-tab-ensemble">
                             <div style="padding:20px 24px 0;">
                                 <div class="predict-metrics-title">🤝 Ensemble Signal Logic</div>
@@ -3004,7 +3391,6 @@
     });
 
     // Update content based on tab
-    // Update content based on tab
     async function updateContent(tab) {
         const contentDisplay = document.getElementById('contentDisplay');
         
@@ -3100,6 +3486,50 @@
                     </div>
                 </div>
             `;
+        }
+        else if (tab === 'miscellaneous') {
+            contentDisplay.innerHTML = `
+                <div class="misc-grid">
+ 
+                    <!-- ─── IPO Card ─── -->
+                    <div class="misc-card" id="ipoCard">
+                        <div class="misc-card-header">
+                            <span class="misc-card-icon">📋</span>
+                            <h3>IPO Tracker</h3>
+                        </div>
+                        <div class="misc-tabs" id="ipoTabs">
+                            <button class="misc-tab-btn active" onclick="switchMiscTab('ipo','open',this)">Open</button>
+                            <button class="misc-tab-btn"        onclick="switchMiscTab('ipo','upcoming',this)">Upcoming</button>
+                            <button class="misc-tab-btn"        onclick="switchMiscTab('ipo','closed',this)">Closed</button>
+                        </div>
+                        <div class="misc-table-wrap" id="ipoContent">
+                            <div class="misc-loading"><div class="misc-spinner"></div><span>Loading IPO data…</span></div>
+                        </div>
+                    </div>
+ 
+                    <!-- ─── Market Trends Card ─── -->
+                    <div class="misc-card" id="trendsCard">
+                        <div class="misc-card-header">
+                            <span class="misc-card-icon">📈</span>
+                            <h3>Market Trends</h3>
+                        </div>
+                        <div class="misc-tabs" id="trendsTabs">
+                            <button class="misc-tab-btn active" onclick="switchMiscTab('trends','gainers',this)">Top Gainers</button>
+                            <button class="misc-tab-btn"        onclick="switchMiscTab('trends','losers',this)">Top Losers</button>
+                            <button class="misc-tab-btn"        onclick="switchMiscTab('trends','volume',this)">By Volume</button>
+                            <button class="misc-tab-btn"        onclick="switchMiscTab('trends','52w_high',this)">52W High</button>
+                            <button class="misc-tab-btn"        onclick="switchMiscTab('trends','52w_low',this)">52W Low</button>
+                        </div>
+                        <div class="misc-table-wrap" id="trendsContent">
+                            <div class="misc-loading"><div class="misc-spinner"></div><span>Loading market data…</span></div>
+                        </div>
+                    </div>
+ 
+                </div>`;
+ 
+            // Kick off both fetches immediately
+            loadIpoData('open');
+            loadTrendsData('gainers');
         }
     }
 
@@ -3589,6 +4019,21 @@
         // Update stock info
         document.getElementById('stockName').textContent = name;
         document.getElementById('stockSymbol').textContent = symbol;
+
+        // Reset logo to skeleton state for new stock
+        const wrapper = document.getElementById('companyLogoWrapper');
+        if (wrapper) {
+            const existing = wrapper.querySelector('.company-logo-img, .company-logo-placeholder');
+            if (existing) {
+                const skeleton = document.createElement('div');
+                skeleton.className = 'company-logo-skeleton';
+                skeleton.id = 'companyLogoSkeleton';
+                existing.replaceWith(skeleton);
+            }
+        }
+
+        // Fetch company logo (non-blocking)
+        fetchCompanyLogo(symbol);
         
         // Load current price and quote data
         await loadStockQuote(symbol);
@@ -4153,6 +4598,50 @@
         });
     })();
 
+    // ── Company Logo (TickerLogos API via backend proxy) ──────────────────────
+    async function fetchCompanyLogo(symbol) {
+        const wrapper  = document.getElementById('companyLogoWrapper');
+        const skeleton = document.getElementById('companyLogoSkeleton');
+        if (!wrapper) return;
+
+        // Strip exchange suffix (.NS / .BO etc.) — backend also does this, belt-and-braces
+        const ticker = symbol.replace(/\.(NS|BO|BSE|NSE)$/i, '');
+
+        try {
+            // Call our own backend proxy (avoids CORS on the search API)
+            const resp = await fetch(`/api/stocks/logo/${encodeURIComponent(ticker)}`);
+            if (!resp.ok) throw new Error('Logo not found');
+            const data = await resp.json();
+
+            if (!data.logo_url) throw new Error('No logo URL returned');
+
+            // Render the logo using the CDN URL (CDN itself is CORS-enabled)
+            const img = document.createElement('img');
+            img.className = 'company-logo-img';
+            img.alt   = data.name || ticker;
+            img.title = data.name || ticker;
+
+            img.onload = () => {
+                if (skeleton && skeleton.parentNode) skeleton.replaceWith(img);
+            };
+            img.onerror = () => {
+                showLogoPlaceholder(wrapper, skeleton, ticker);
+            };
+            img.src = data.logo_url;
+
+        } catch (err) {
+            // Fallback: first-letter placeholder
+            showLogoPlaceholder(wrapper, skeleton, ticker);
+        }
+    }
+
+    function showLogoPlaceholder(wrapper, skeleton, ticker) {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'company-logo-placeholder';
+        placeholder.textContent = ticker.charAt(0).toUpperCase();
+        if (skeleton && skeleton.parentNode) skeleton.replaceWith(placeholder);
+    }
+
     // Initialize on page load
     window.addEventListener('DOMContentLoaded', () => {
         checkAuth();
@@ -4615,6 +5104,346 @@ document.getElementById('predictDateModal').addEventListener('click', function(e
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closePredictModal();
 });
+
+/* ───── Miscellaneous helpers ───── */
+    // State caches so repeated tab-switches don't re-fetch
+    const _miscCache = { ipo: {}, trends: {} };
+ 
+    /** Switch sub-tab within IPO or Trends section */
+    function switchMiscTab(section, key, btn) {
+        // Update active pill
+        const tabsEl = document.getElementById(section === 'ipo' ? 'ipoTabs' : 'trendsTabs');
+        if (tabsEl) {
+            tabsEl.querySelectorAll('.misc-tab-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+        }
+        if (section === 'ipo')    loadIpoData(key);
+        if (section === 'trends') loadTrendsData(key);
+    }
+ 
+    /** Render IPO table for the given bucket (open / closed / upcoming) */
+    async function loadIpoData(bucket) {
+        const container = document.getElementById('ipoContent');
+        if (!container) return;
+ 
+        // Use cache if available
+        if (_miscCache.ipo[bucket]) {
+            renderIpoTable(container, _miscCache.ipo[bucket], bucket);
+            return;
+        }
+ 
+        container.innerHTML = `<div class="misc-loading"><div class="misc-spinner"></div><span>Loading…</span></div>`;
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp  = await fetch('/misc/ipo', {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+            const data = await resp.json();
+
+            // If NSE is blocking server requests the backend returns
+            // { open:[], closed:[], upcoming:[], unavailable:true }
+            // instead of a 502 — show a gentle notice rather than an error banner.
+            if (data.unavailable) {
+                container.innerHTML = `
+                    <div class="misc-empty" style="flex-direction:column;gap:8px;">
+                        <span style="font-size:28px;">🔒</span>
+                        <strong style="color:var(--text-primary);">IPO data temporarily unavailable</strong>
+                        <span style="font-size:13px;color:var(--text-muted);max-width:380px;text-align:center;">
+                            NSE India's servers are not responding to automated requests right now. Please check back in a few minutes.
+                        </span>
+                    </div>`;
+                return;
+            }
+
+            // Cache all three buckets at once
+            _miscCache.ipo.open     = data.open     || [];
+            _miscCache.ipo.closed   = data.closed   || [];
+            _miscCache.ipo.upcoming = data.upcoming || [];
+            renderIpoTable(container, _miscCache.ipo[bucket], bucket);
+        } catch (err) {
+            container.innerHTML = `<div class="misc-error">⚠️ ${err.message || 'Failed to load IPO data'}</div>`;
+        }
+    }
+ 
+    function renderIpoTable(container, rows, bucket) {
+        if (!rows || !rows.length) {
+            const labels = { open: 'No open IPOs right now', closed: 'No closed IPOs', upcoming: 'No upcoming IPOs' };
+            container.innerHTML = `<div class="misc-empty">📭 ${labels[bucket] || 'No data'}</div>`;
+            return;
+        }
+
+        const showGmp = bucket === 'open' || bucket === 'closed';
+
+        const cards = rows.map((ipo, idx) => {
+            const uid = `ipo_${bucket}_${idx}`;
+
+            // ── Quick-info pills ──
+            const openDate  = escMisc(ipo.open_date  || '—');
+            const closeDate = escMisc(ipo.close_date || '—');
+            const issueSize = escMisc(ipo.issue_size || '—');
+            const ipoType   = escMisc(ipo.ipo_type   || '');
+
+            // ── Schedule accordion ──
+            let scheduleHtml = '';
+            if (ipo.schedule && Object.keys(ipo.schedule).length) {
+                const kvs = Object.entries(ipo.schedule).map(([lbl, val]) =>
+                    `<div class="ipo-kv"><span class="kv-label">${escMisc(lbl)}</span><span class="kv-value">${escMisc(val)}</span></div>`
+                ).join('');
+                scheduleHtml = buildAccordion(uid + '_sched', '📅', 'Schedule', `<div class="ipo-kv-grid">${kvs}</div>`);
+            }
+
+            // ── Issue Size accordion ──
+            let issueSizeHtml = '';
+            if (ipo.issue_size_detail && Object.keys(ipo.issue_size_detail).length) {
+                const kvs = Object.entries(ipo.issue_size_detail).map(([lbl, val]) =>
+                    `<div class="ipo-kv"><span class="kv-label">${escMisc(lbl)}</span><span class="kv-value">${escMisc(val)}</span></div>`
+                ).join('');
+                issueSizeHtml = buildAccordion(uid + '_issue', '💰', 'Issue Size', `<div class="ipo-kv-grid">${kvs}</div>`);
+            }
+
+            // ── About Company accordion ──
+            let aboutHtml = '';
+            if (ipo.about_company) {
+                aboutHtml = buildAccordion(uid + '_about', '🏢', 'About Company',
+                    `<p class="ipo-about-text">${escMisc(ipo.about_company)}</p>`);
+            }
+
+            // ── GMP & Subscription accordion (open / closed only) ──
+            let gmpHtml = '';
+            if (showGmp) {
+                let gmpContent = '';
+                // GMP Trends table
+                if (ipo.gmp_trends && ipo.gmp_trends.length) {
+                    const trendRows = ipo.gmp_trends.map(g =>
+                        `<tr><td>${escMisc(g.date)}</td><td style="font-weight:600;color:var(--accent)">${escMisc(g.gmp)}</td><td style="color:var(--positive)">${escMisc(g.gain)}</td></tr>`
+                    ).join('');
+                    gmpContent += `
+                        <div class="ipo-gmp-trends">
+                            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">GMP Trends</div>
+                            <table><thead><tr><th>Date</th><th>GMP</th><th>Gain</th></tr></thead><tbody>${trendRows}</tbody></table>
+                        </div>`;
+                }
+                // Subscription numbers
+                if (ipo.subscription && Object.keys(ipo.subscription).length) {
+                    const subMap = { institutional: 'Institutional', nii: 'NII', retail: 'Retail', total: 'Total' };
+                    const subCards = Object.entries(subMap).map(([key, label]) => {
+                        const s = ipo.subscription[key];
+                        if (!s) return '';
+                        return `<div class="ipo-sub-item">
+                            <div class="sub-cat">${label}</div>
+                            <div class="sub-val">${escMisc(s.subscription || '—')}</div>
+                            <div class="sub-detail">Res: ₹${escMisc(s.reserved || '—')} Cr</div>
+                            <div class="sub-detail">App: ₹${escMisc(s.applied  || '—')} Cr</div>
+                        </div>`;
+                    }).join('');
+                    gmpContent += `
+                        <div style="margin-top:${ipo.gmp_trends && ipo.gmp_trends.length ? '12px' : '0'}">
+                            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Subscription</div>
+                            <div class="ipo-sub-grid">${subCards}</div>
+                        </div>`;
+                }
+                if (gmpContent) {
+                    gmpHtml = buildAccordion(uid + '_gmp', '📊', 'GMP & Subscription', gmpContent);
+                }
+            }
+
+            // ── Strengths accordion ──
+            let strengthsHtml = '';
+            if (ipo.strengths && ipo.strengths.length) {
+                const items = ipo.strengths.map(s => `<li>${escMisc(s)}</li>`).join('');
+                strengthsHtml = buildAccordion(uid + '_str', '✅', 'Strengths',
+                    `<ul class="ipo-bullet-list strengths">${items}</ul>`);
+            }
+
+            // ── Risks accordion ──
+            let risksHtml = '';
+            if (ipo.risks && ipo.risks.length) {
+                const items = ipo.risks.map(r => `<li>${escMisc(r)}</li>`).join('');
+                risksHtml = buildAccordion(uid + '_risk', '⚠️', 'Risks',
+                    `<ul class="ipo-bullet-list risks">${items}</ul>`);
+            }
+
+            const badgeCls = { open: 'open', closed: 'closed', upcoming: 'upcoming' };
+            const badgeLabel = bucket.charAt(0).toUpperCase() + bucket.slice(1);
+
+            return `
+            <div class="ipo-detail-card">
+                <div class="ipo-card-header" onclick="toggleIpoCard('${uid}')">
+                    <div class="ipo-card-left">
+                        ${ipo.logo_url
+                            ? `<img class="ipo-card-logo" src="${escMisc(ipo.logo_url)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+                              + `<div class="ipo-card-logo-placeholder" style="display:none;">🏦</div>`
+                            : `<div class="ipo-card-logo-placeholder">🏦</div>`
+                        }
+                        <div>
+                            <div class="ipo-card-name">${escMisc(ipo.name)}</div>
+                            ${ipoType ? `<div class="ipo-card-type">${ipoType}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="ipo-card-right">
+                        <span class="ipo-card-price">${escMisc(ipo.price_band || '—')}</span>
+                        <span class="misc-badge ${badgeCls[bucket]}">${badgeLabel}</span>
+                        <span class="ipo-expand-chevron" id="${uid}_chev">▼</span>
+                    </div>
+                </div>
+                <div class="ipo-card-body" id="${uid}_body">
+                    <div class="ipo-quick-row">
+                        <div class="ipo-quick-pill"><span class="lbl">Open</span>${openDate}</div>
+                        <div class="ipo-quick-pill"><span class="lbl">Close</span>${closeDate}</div>
+                        <div class="ipo-quick-pill"><span class="lbl">Issue Size</span>${issueSize}</div>
+                    </div>
+                    <div class="ipo-accordions">
+                        ${scheduleHtml}
+                        ${issueSizeHtml}
+                        ${aboutHtml}
+                        ${gmpHtml}
+                        ${strengthsHtml}
+                        ${risksHtml}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        container.innerHTML = `<div class="ipo-list">${cards}</div>`;
+    }
+
+    /** Build a single collapsible accordion section */
+    function buildAccordion(uid, icon, label, bodyHtml) {
+        return `
+        <div class="ipo-acc-item">
+            <div class="ipo-acc-trigger" id="${uid}_trig" onclick="toggleIpoAcc('${uid}')">
+                <span><span class="acc-icon">${icon}</span>${label}</span>
+                <span class="acc-chevron">▼</span>
+            </div>
+            <div class="ipo-acc-body" id="${uid}_body">${bodyHtml}</div>
+        </div>`;
+    }
+
+    /** Toggle IPO card expand / collapse */
+    function toggleIpoCard(uid) {
+        const body = document.getElementById(uid + '_body');
+        const chev = document.getElementById(uid + '_chev');
+        if (!body) return;
+        const isOpen = body.classList.toggle('open');
+        if (chev) chev.classList.toggle('open', isOpen);
+    }
+
+    /** Toggle an accordion section inside an IPO card */
+    function toggleIpoAcc(uid) {
+        const body = document.getElementById(uid + '_body');
+        const trig = document.getElementById(uid + '_trig');
+        if (!body) return;
+        const isOpen = body.classList.toggle('open');
+        if (trig) trig.classList.toggle('open', isOpen);
+    }
+ 
+    /** Render Market Trends table for the given category */
+    async function loadTrendsData(category) {
+        const container = document.getElementById('trendsContent');
+        if (!container) return;
+ 
+        if (_miscCache.trends[category]) {
+            renderTrendsTable(container, _miscCache.trends[category], category);
+            return;
+        }
+ 
+        container.innerHTML = `<div class="misc-loading"><div class="misc-spinner"></div><span>Loading…</span></div>`;
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp  = await fetch(`/misc/market-trends/${category}`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+            const data = await resp.json();
+            _miscCache.trends[category] = data.data || [];
+            renderTrendsTable(container, _miscCache.trends[category], category);
+        } catch (err) {
+            container.innerHTML = `<div class="misc-error">⚠️ ${err.message || 'Failed to load market data'}</div>`;
+        }
+    }
+ 
+    function renderTrendsTable(container, rows, category) {
+        if (!rows || !rows.length) {
+            container.innerHTML = `<div class="misc-empty">📭 No data available</div>`;
+            return;
+        }
+ 
+        const isVolume   = category === 'volume';
+        const is52W      = category === '52w_high' || category === '52w_low';
+ 
+        const extraHeader = isVolume
+            ? '<th>Volume</th>'
+            : is52W
+                ? '<th>Near 52W ' + (category === '52w_high' ? 'High' : 'Low') + '</th>'
+                : '<th>Change %</th>';
+ 
+        const rows_html = rows.map((stk, i) => {
+            const chg      = parseFloat(stk.change) || 0;
+            const chgCls   = chg > 0 ? 'misc-pos' : chg < 0 ? 'misc-neg' : 'misc-neu';
+            const chgStr   = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+            const volStr   = stk.volume ? formatVolMisc(stk.volume) : '—';
+            const near52   = category === '52w_high' ? stk.near_52wh : stk.near_52wl;
+            const near52Str = near52 ? near52.toFixed(2) + '%' : '—';
+ 
+            const extraCell = isVolume
+                ? `<td>${volStr}</td>`
+                : is52W
+                    ? `<td class="${chgCls}">${near52Str}</td>`
+                    : `<td class="${chgCls}">${chgStr}</td>`;
+ 
+            return `
+                <tr>
+                    <td><span class="misc-rank">${i + 1}</span></td>
+                    <td><strong>${escMisc(stk.symbol)}</strong></td>
+                    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${escMisc(stk.name)}">${escMisc(stk.name)}</td>
+                    <td>₹${parseFloat(stk.ltp || 0).toFixed(2)}</td>
+                    ${extraCell}
+                    <td style="font-size:11px;color:var(--text-muted);">${escMisc(stk.index || '')}</td>
+                </tr>`;
+        }).join('');
+ 
+        const extraHead = isVolume
+            ? '<th>Volume</th>'
+            : is52W
+                ? `<th>Near 52W ${category === '52w_high' ? 'High' : 'Low'}</th>`
+                : '<th>Change %</th>';
+ 
+        container.innerHTML = `
+            <table class="misc-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Symbol</th>
+                        <th>Company</th>
+                        <th>LTP (₹)</th>
+                        ${extraHead}
+                        <th>Index</th>
+                    </tr>
+                </thead>
+                <tbody>${rows_html}</tbody>
+            </table>`;
+    }
+ 
+    /** Format large volume numbers (e.g. 12345678 → 1.23 Cr) */
+    function formatVolMisc(n) {
+        n = parseInt(n) || 0;
+        if (n >= 1e7) return (n / 1e7).toFixed(2) + ' Cr';
+        if (n >= 1e5) return (n / 1e5).toFixed(2) + ' L';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + ' K';
+        return n.toString();
+    }
+ 
+    /** HTML-escape helper for miscellaneous section */
+    function escMisc(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
 
 // Predict button visibility is managed inside checkPortfolioStatus directly.
     /* News Tab  */
