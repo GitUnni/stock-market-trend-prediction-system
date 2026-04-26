@@ -490,3 +490,69 @@ async def get_stock_metrics(symbol: str, db: Session = Depends(get_db)):
             status_code=404,
             detail=f"Metrics not available for {symbol}"
         )
+
+
+@router.get("/logo/{symbol}")
+async def get_stock_logo(symbol: str):
+    """
+    Proxy endpoint to fetch company logo URL via TickerLogos API.
+
+    The AllinvestView logo-search API blocks browser requests (no CORS header),
+    so we call it server-side and return just the CDN logo URL to the frontend.
+
+    Parameters:
+    - symbol: NSE stock symbol (e.g. RELIANCE, TCS)
+
+    Returns:
+    - logo_url: CDN URL for the company logo (ready to use in <img src>)
+    - domain:   Company website domain resolved from the ticker
+    - name:     Company name returned by the logo API
+    """
+    # Strip exchange suffix just in case the frontend passes e.g. RELIANCE.NS
+    ticker = symbol.upper().split(".")[0]
+
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        resp = requests.get(
+            f"https://www.allinvestview.com/api/logo-search/?q={ticker}",
+            headers=headers,
+            timeout=8
+        )
+
+        if resp.status_code != 200:
+            raise HTTPException(status_code=404, detail="Logo not found")
+
+        data = resp.json()
+        results = data.get("results", [])
+
+        if not results or not results[0].get("website"):
+            raise HTTPException(status_code=404, detail="Logo not found")
+
+        result = results[0]
+        # Strip protocol to get a clean domain for the CDN
+        domain = (
+            result["website"]
+            .replace("http://", "")
+            .replace("https://", "")
+            .rstrip("/")
+            .split("/")[0]
+        )
+
+        return {
+            "symbol": ticker,
+            "name": result.get("name", ""),
+            "domain": domain,
+            "logo_url": f"https://cdn.tickerlogos.com/{domain}",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching logo for {symbol}: {str(e)}")
+        raise HTTPException(status_code=404, detail="Logo lookup failed")
