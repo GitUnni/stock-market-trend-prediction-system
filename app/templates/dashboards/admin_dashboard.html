@@ -657,7 +657,7 @@
                 <span class="nav-badge" id="navBadge" style="display: none;">0</span>
             </li>
             <li class="nav-item" data-tab="users">Users</li>
-            <li class="nav-item" data-tab="customers">Customers</li>
+            <li class="nav-item" data-tab="messages">Messages</li>
         </ul>
     </div>
 
@@ -827,12 +827,55 @@
     </div>
 </div>
 
-<!-- Tab: Customers (placeholder) -->
-<div class="tab-section" id="tab-customers">
-    <div class="tab-placeholder-card">
-        <div class="placeholder-icon">👥</div>
-        <h2>Customers</h2>
-        <p>Customers details will be implemented here.</p>
+<!-- Tab: Messages (Broadcast) -->
+<div class="tab-section" id="tab-messages">
+    <div id="broadcastMsgContainer"></div>
+    <div class="tab-placeholder-card" style="max-width:640px;margin:0 auto;">
+        <div class="placeholder-icon">📢</div>
+        <h2 style="margin-bottom:24px;">Send Broadcast Message</h2>
+
+        <div style="text-align:left;">
+            <label for="broadcastTitle" style="display:block;font-weight:600;color:#2c3e50;margin-bottom:6px;">
+                Message Title
+            </label>
+            <input
+                id="broadcastTitle"
+                type="text"
+                placeholder="Enter message title…"
+                style="width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:8px;
+                       font-size:15px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+                       outline:none;transition:border 0.2s;box-sizing:border-box;"
+                onfocus="this.style.borderColor='#2c3e50'"
+                onblur="this.style.borderColor='#e0e0e0'"
+            />
+
+            <label for="broadcastContent" style="display:block;font-weight:600;color:#2c3e50;
+                                                  margin-top:20px;margin-bottom:6px;">
+                Message Content
+            </label>
+            <textarea
+                id="broadcastContent"
+                placeholder="Write your broadcast message here…"
+                rows="7"
+                style="width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:8px;
+                       font-size:15px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+                       outline:none;resize:vertical;transition:border 0.2s;box-sizing:border-box;"
+                onfocus="this.style.borderColor='#2c3e50'"
+                onblur="this.style.borderColor='#e0e0e0'"
+            ></textarea>
+
+            <button
+                id="broadcastSubmitBtn"
+                onclick="submitBroadcast()"
+                style="margin-top:20px;width:100%;padding:14px;background:#2c3e50;color:white;
+                       border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;
+                       font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;transition:background 0.2s;"
+                onmouseover="this.style.background='#1a252f'"
+                onmouseout="this.style.background='#2c3e50'"
+            >
+                📤 Send Broadcast
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1259,6 +1302,55 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /* ── Broadcast ──────────────────────────────────────────────────────── */
+    async function submitBroadcast() {
+        const title   = document.getElementById('broadcastTitle').value.trim();
+        const content = document.getElementById('broadcastContent').value.trim();
+        const btn     = document.getElementById('broadcastSubmitBtn');
+        const msgBox  = document.getElementById('broadcastMsgContainer');
+
+        if (!title) {
+            msgBox.innerHTML = `<div class="error-message">Please enter a message title.</div>`;
+            return;
+        }
+        if (!content) {
+            msgBox.innerHTML = `<div class="error-message">Please enter message content.</div>`;
+            return;
+        }
+
+        btn.disabled  = true;
+        btn.textContent = 'Sending…';
+        msgBox.innerHTML = '';
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const response = await fetch('/broadcasts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token ? `Bearer ${token}` : ''
+                },
+                body: JSON.stringify({ title, content })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                msgBox.innerHTML = `<div class="success-message">✓ Broadcast sent successfully!</div>`;
+                document.getElementById('broadcastTitle').value   = '';
+                document.getElementById('broadcastContent').value = '';
+                setTimeout(() => { msgBox.innerHTML = ''; }, 5000);
+            } else {
+                throw new Error(data.detail || 'Failed to send broadcast.');
+            }
+        } catch (err) {
+            console.error('Broadcast error:', err);
+            msgBox.innerHTML = `<div class="error-message">${err.message}</div>`;
+        } finally {
+            btn.disabled    = false;
+            btn.textContent = '📤 Send Broadcast';
+        }
     }
 
     /* Init */
