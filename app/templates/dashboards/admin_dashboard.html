@@ -827,39 +827,47 @@
     </div>
 </div>
 
-<!-- Tab: Messages (Broadcast) -->
+<!-- Tab: Messages (Broadcast + Feedback Inbox) -->
 <div class="tab-section" id="tab-messages">
-    <div id="broadcastMsgContainer"></div>
-    <div class="tab-placeholder-card" style="max-width:640px;margin:0 auto;">
-        <div class="placeholder-icon">📢</div>
-        <h2 style="margin-bottom:24px;">Send Broadcast Message</h2>
 
-        <div style="text-align:left;">
-            <label for="broadcastTitle" style="display:block;font-weight:600;color:#2c3e50;margin-bottom:6px;">
+    <!-- Two-column layout -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start;">
+
+        <!-- ── LEFT: Send Broadcast ── -->
+        <div style="background:white;border-radius:14px;padding:32px 28px;
+                    box-shadow:0 4px 18px rgba(0,0,0,0.18);">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+                <span style="font-size:28px;">📢</span>
+                <h2 style="margin:0;font-size:20px;font-weight:700;color:#2c3e50;">Send Broadcast</h2>
+            </div>
+
+            <div id="broadcastMsgContainer"></div>
+
+            <label style="display:block;font-weight:600;color:#2c3e50;margin-bottom:6px;font-size:14px;">
                 Message Title
             </label>
             <input
                 id="broadcastTitle"
                 type="text"
                 placeholder="Enter message title…"
-                style="width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:8px;
-                       font-size:15px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
-                       outline:none;transition:border 0.2s;box-sizing:border-box;"
+                style="width:100%;padding:11px 14px;border:2px solid #e0e0e0;border-radius:9px;
+                       font-size:14px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+                       outline:none;transition:border .2s;box-sizing:border-box;"
                 onfocus="this.style.borderColor='#2c3e50'"
                 onblur="this.style.borderColor='#e0e0e0'"
             />
 
-            <label for="broadcastContent" style="display:block;font-weight:600;color:#2c3e50;
-                                                  margin-top:20px;margin-bottom:6px;">
+            <label style="display:block;font-weight:600;color:#2c3e50;
+                          margin-top:18px;margin-bottom:6px;font-size:14px;">
                 Message Content
             </label>
             <textarea
                 id="broadcastContent"
                 placeholder="Write your broadcast message here…"
-                rows="7"
-                style="width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:8px;
-                       font-size:15px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
-                       outline:none;resize:vertical;transition:border 0.2s;box-sizing:border-box;"
+                rows="6"
+                style="width:100%;padding:11px 14px;border:2px solid #e0e0e0;border-radius:9px;
+                       font-size:14px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+                       outline:none;resize:vertical;transition:border .2s;box-sizing:border-box;"
                 onfocus="this.style.borderColor='#2c3e50'"
                 onblur="this.style.borderColor='#e0e0e0'"
             ></textarea>
@@ -867,17 +875,88 @@
             <button
                 id="broadcastSubmitBtn"
                 onclick="submitBroadcast()"
-                style="margin-top:20px;width:100%;padding:14px;background:#2c3e50;color:white;
-                       border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;
-                       font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;transition:background 0.2s;"
+                style="margin-top:18px;width:100%;padding:13px;background:#2c3e50;color:white;
+                       border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;
+                       font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;transition:background .2s;"
                 onmouseover="this.style.background='#1a252f'"
                 onmouseout="this.style.background='#2c3e50'"
             >
                 📤 Send Broadcast
             </button>
         </div>
+
+        <!-- ── RIGHT: Feedback Inbox ── -->
+        <div style="background:white;border-radius:14px;padding:32px 28px;
+                    box-shadow:0 4px 18px rgba(0,0,0,0.18);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span style="font-size:26px;">💬</span>
+                    <h2 style="margin:0;font-size:20px;font-weight:700;color:#2c3e50;">
+                        Customer Feedback
+                    </h2>
+                </div>
+                <button onclick="loadAdminFeedback()"
+                    style="padding:7px 14px;background:#ecf0f1;border:none;border-radius:8px;
+                           font-size:13px;font-weight:600;color:#2c3e50;cursor:pointer;
+                           transition:background .2s;"
+                    onmouseover="this.style.background='#d5dbdb'"
+                    onmouseout="this.style.background='#ecf0f1'">🔄 Refresh</button>
+            </div>
+
+            <!-- Filter pills -->
+            <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">
+                <button onclick="filterAdminFeedback('ALL',this)"
+                    class="fb-filter-btn fb-filter-active"
+                    style="padding:6px 14px;border:none;border-radius:20px;font-size:12px;
+                           font-weight:600;cursor:pointer;background:#2c3e50;color:#fff;transition:all .2s;">
+                    All
+                </button>
+                <button onclick="filterAdminFeedback('REVIEW',this)"
+                    class="fb-filter-btn"
+                    style="padding:6px 14px;border:none;border-radius:20px;font-size:12px;
+                           font-weight:600;cursor:pointer;background:#f0f0f0;color:#555;transition:all .2s;">
+                    ⭐ Reviews
+                </button>
+                <button onclick="filterAdminFeedback('COMPLAINT',this)"
+                    class="fb-filter-btn"
+                    style="padding:6px 14px;border:none;border-radius:20px;font-size:12px;
+                           font-weight:600;cursor:pointer;background:#f0f0f0;color:#555;transition:all .2s;">
+                    📋 Complaints
+                </button>
+                <button onclick="filterAdminFeedback('PENDING',this)"
+                    class="fb-filter-btn"
+                    style="padding:6px 14px;border:none;border-radius:20px;font-size:12px;
+                           font-weight:600;cursor:pointer;background:#f0f0f0;color:#555;transition:all .2s;">
+                    ⏳ Awaiting Reply
+                </button>
+            </div>
+
+            <div id="adminFeedbackLoading"
+                 style="text-align:center;padding:30px;color:#888;">Loading…</div>
+            <div id="adminFeedbackList"
+                 style="max-height:520px;overflow-y:auto;padding-right:4px;"></div>
+        </div>
+
+    </div><!-- /grid -->
+
+    <!-- Full-width Reply Modal overlay -->
+    <div id="replyModalOverlay"
+         onclick="closeReplyModal(event)"
+         style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);
+                z-index:9000;align-items:center;justify-content:center;">
+        <div id="replyModal"
+             style="background:white;border-radius:16px;padding:36px 32px;
+                    width:90%;max-width:560px;box-shadow:0 16px 48px rgba(0,0,0,0.30);
+                    position:relative;max-height:80vh;overflow-y:auto;">
+            <button onclick="closeReplyModal()"
+                style="position:absolute;top:14px;right:18px;background:none;border:none;
+                       font-size:22px;cursor:pointer;color:#888;line-height:1;">✕</button>
+            <div id="replyModalContent"></div>
+        </div>
     </div>
+
 </div>
+
 
 <script>
     let pendingInstitutions = [];
@@ -948,6 +1027,8 @@
             document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
             const target = document.getElementById('tab-' + tab);
             if (target) target.classList.add('active');
+
+            if (tab === 'messages') { loadAdminFeedback(); }
 
             // Lazy-load users the first time the tab is opened
             if (tab === 'users' && !usersLoaded) {
@@ -1350,6 +1431,247 @@
         } finally {
             btn.disabled    = false;
             btn.textContent = '📤 Send Broadcast';
+        }
+    }
+
+    /* ── Admin Feedback Inbox ────────────────────────────────────────────── */
+    let _allAdminFeedback = [];
+    let _activeFeedbackId = null;
+
+    async function loadAdminFeedback() {
+        const loading = document.getElementById('adminFeedbackLoading');
+        const list    = document.getElementById('adminFeedbackList');
+        if (!list) return;
+        if (loading) loading.style.display = 'block';
+        list.innerHTML = '';
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp  = await fetch('/feedback', {
+                headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+            });
+            if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+            _allAdminFeedback = await resp.json();
+            if (loading) loading.style.display = 'none';
+            renderAdminFeedback(_allAdminFeedback);
+        } catch (err) {
+            if (loading) loading.style.display = 'none';
+            list.innerHTML = `<div style="text-align:center;padding:30px;color:#e74c3c;">
+                ⚠️ Could not load feedback. Please try again.</div>`;
+        }
+    }
+
+    function filterAdminFeedback(filter, btn) {
+        document.querySelectorAll('.fb-filter-btn').forEach(b => {
+            b.style.background = '#f0f0f0';
+            b.style.color      = '#555';
+        });
+        if (btn) { btn.style.background = '#2c3e50'; btn.style.color = '#fff'; }
+
+        let items = _allAdminFeedback;
+        if (filter === 'REVIEW')    items = items.filter(f => f.feedback_type === 'REVIEW');
+        if (filter === 'COMPLAINT') items = items.filter(f => f.feedback_type === 'COMPLAINT');
+        if (filter === 'PENDING')   items = items.filter(f => !f.admin_reply);
+        renderAdminFeedback(items);
+    }
+
+    function renderAdminFeedback(items) {
+        const list = document.getElementById('adminFeedbackList');
+        if (!list) return;
+
+        if (!items.length) {
+            list.innerHTML = `<div style="text-align:center;padding:40px;color:#aaa;">
+                <div style="font-size:36px;margin-bottom:10px;">🗒️</div>
+                <p>No feedback found.</p></div>`;
+            return;
+        }
+
+        list.innerHTML = items.map(fb => {
+            const isReview = fb.feedback_type === 'REVIEW';
+            const date = fb.created_at
+                ? new Date(fb.created_at).toLocaleString('en-IN',{
+                    day:'numeric',month:'short',year:'numeric',
+                    hour:'2-digit',minute:'2-digit'})
+                : '';
+            const stars = isReview
+                ? [1,2,3,4,5].map(n =>
+                    `<span style="color:${n<=(fb.rating||0)?'#F39C12':'#ddd'};font-size:15px;">★</span>`
+                  ).join('')
+                : '';
+            const typeBadge = isReview
+                ? `<span style="background:#FEF9E7;color:#D4AC0D;border:1px solid #F9E79F;
+                               font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⭐ REVIEW</span>`
+                : `<span style="background:#FDEDEC;color:#C0392B;border:1px solid #F5B7B1;
+                               font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">📋 COMPLAINT</span>`;
+            const replyStatus = fb.admin_reply
+                ? `<span style="font-size:11px;color:#27ae60;font-weight:600;">✓ Replied</span>`
+                : `<span style="font-size:11px;color:#e67e22;font-weight:600;">⏳ Pending</span>`;
+
+            return `
+            <div onclick="openReplyModal(${fb.id})"
+                 style="border:1px solid #ecf0f1;border-radius:10px;padding:14px 16px;
+                        margin-bottom:12px;cursor:pointer;transition:all .2s;
+                        border-left:3px solid ${isReview?'#F39C12':'#e74c3c'};"
+                 onmouseenter="this.style.background='#f8f9fa';this.style.transform='translateY(-1px)'"
+                 onmouseleave="this.style.background='';this.style.transform=''">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;">
+                            ${typeBadge}
+                            ${isReview ? `<div>${stars}</div>` : `<span style="font-size:13px;font-weight:600;color:#2c3e50;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(fb.subject||'')}</span>`}
+                        </div>
+                        <p style="margin:0 0 4px;font-size:13px;color:#555;overflow:hidden;
+                                  text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(fb.content)}</p>
+                        <p style="margin:0;font-size:11px;color:#888;">
+                            👤 ${escapeHtml(fb.user_name)} &nbsp;·&nbsp; ${date}</p>
+                    </div>
+                    <div style="flex-shrink:0;">${replyStatus}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function openReplyModal(feedbackId) {
+        const fb = _allAdminFeedback.find(f => f.id === feedbackId);
+        if (!fb) return;
+        _activeFeedbackId = feedbackId;
+
+        const isReview = fb.feedback_type === 'REVIEW';
+        const date = fb.created_at
+            ? new Date(fb.created_at).toLocaleString('en-IN',{day:'numeric',month:'short',
+              year:'numeric',hour:'2-digit',minute:'2-digit'})
+            : '';
+        const stars = isReview
+            ? [1,2,3,4,5].map(n =>
+                `<span style="color:${n<=(fb.rating||0)?'#F39C12':'#ddd'};font-size:22px;">★</span>`
+              ).join('')
+            : '';
+        const subjectRow = !isReview && fb.subject
+            ? `<p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#2c3e50;">
+                   📌 ${escapeHtml(fb.subject)}</p>`
+            : '';
+        const existingReply = fb.admin_reply
+            ? `<div style="margin-bottom:16px;padding:14px;border-radius:9px;
+                           background:#eafaf1;border-left:3px solid #27ae60;">
+                   <p style="margin:0 0 5px;font-size:12px;font-weight:700;color:#27ae60;">
+                       ✓ Your Previous Reply</p>
+                   <p style="margin:0;font-size:13px;color:#2c3e50;line-height:1.6;">
+                       ${escapeHtml(fb.admin_reply)}</p>
+               </div>`
+            : '';
+
+        document.getElementById('replyModalContent').innerHTML = `
+            <!-- Header -->
+            <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #ecf0f1;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                    ${isReview
+                        ? `<span style="background:#FEF9E7;color:#D4AC0D;border:1px solid #F9E79F;
+                                        font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">⭐ Review</span>
+                           <div>${stars}</div>`
+                        : `<span style="background:#FDEDEC;color:#C0392B;border:1px solid #F5B7B1;
+                                        font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">📋 Complaint</span>`
+                    }
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                    <div>
+                        <p style="margin:0;font-size:15px;font-weight:700;color:#2c3e50;">
+                            ${escapeHtml(fb.user_name)}</p>
+                        <p style="margin:2px 0 0;font-size:12px;color:#888;">${escapeHtml(fb.user_email)}</p>
+                    </div>
+                    <span style="font-size:11px;color:#aaa;">${date}</span>
+                </div>
+            </div>
+
+            <!-- Feedback content -->
+            <div style="margin-bottom:20px;">
+                ${subjectRow}
+                <p style="margin:0;font-size:14px;color:#444;line-height:1.7;white-space:pre-wrap;">${escapeHtml(fb.content)}</p>
+            </div>
+
+            <!-- Existing reply -->
+            ${existingReply}
+
+            <!-- Reply area -->
+            <div id="replyStatusMsg" style="margin-bottom:10px;"></div>
+            <label style="display:block;font-size:13px;font-weight:600;color:#2c3e50;margin-bottom:8px;">
+                ${fb.admin_reply ? 'Update Your Reply' : 'Write a Reply'}
+            </label>
+            <textarea id="adminReplyText" rows="5"
+                placeholder="Type your response to this customer…"
+                style="width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:9px;
+                       font-size:14px;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+                       resize:vertical;outline:none;box-sizing:border-box;transition:border .2s;"
+                onfocus="this.style.borderColor='#2c3e50'"
+                onblur="this.style.borderColor='#e0e0e0'"
+            >${fb.admin_reply ? escapeHtml(fb.admin_reply) : ''}</textarea>
+            <button onclick="submitAdminReply()"
+                id="replySubmitBtn"
+                style="margin-top:14px;width:100%;padding:13px;background:#2c3e50;color:white;
+                       border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;
+                       font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;transition:background .2s;"
+                onmouseover="this.style.background='#1a252f'"
+                onmouseout="this.style.background='#2c3e50'">
+                ✉️ Send Reply
+            </button>`;
+
+        const overlay = document.getElementById('replyModalOverlay');
+        overlay.style.display = 'flex';
+        setTimeout(() => { overlay.style.opacity = 1; }, 10);
+    }
+
+    function closeReplyModal(evt) {
+        if (evt && evt.target !== document.getElementById('replyModalOverlay')) return;
+        document.getElementById('replyModalOverlay').style.display = 'none';
+        _activeFeedbackId = null;
+    }
+
+    async function submitAdminReply() {
+        if (!_activeFeedbackId) return;
+        const reply  = document.getElementById('adminReplyText').value.trim();
+        const btn    = document.getElementById('replySubmitBtn');
+        const status = document.getElementById('replyStatusMsg');
+
+        if (!reply) {
+            status.innerHTML = `<div class="error-message" style="padding:10px;font-size:13px;">
+                Please write a reply before submitting.</div>`;
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        status.innerHTML = '';
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp  = await fetch(`/feedback/${_activeFeedbackId}/reply`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token ? `Bearer ${token}` : ''
+                },
+                body: JSON.stringify({ reply })
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Failed to send reply.');
+
+            status.innerHTML = `<div class="success-message" style="padding:10px;font-size:13px;">
+                ✓ Reply sent successfully!</div>`;
+            btn.textContent = '✉️ Send Reply';
+
+            // Update local cache so re-render shows the reply
+            const fb = _allAdminFeedback.find(f => f.id === _activeFeedbackId);
+            if (fb) fb.admin_reply = reply;
+            renderAdminFeedback(_allAdminFeedback);
+
+            setTimeout(() => {
+                document.getElementById('replyModalOverlay').style.display = 'none';
+                _activeFeedbackId = null;
+            }, 1400);
+        } catch (err) {
+            status.innerHTML = `<div class="error-message" style="padding:10px;font-size:13px;">
+                ${escapeHtml(err.message)}</div>`;
+            btn.disabled = false;
+            btn.textContent = '✉️ Send Reply';
         }
     }
 
