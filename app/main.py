@@ -10,7 +10,7 @@ from app.routes.predict import router as predict_router
 from app.routes.research import router as research_router
 from app.routes.news import router as news_router
 from app.routes.miscellaneous import router as miscellaneous_router
-
+from app.routes.broadcasts import router as broadcasts_router
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -24,5 +24,6 @@ app.include_router(predict_router)
 app.include_router(research_router)
 app.include_router(news_router)
 app.include_router(miscellaneous_router)
+app.include_router(broadcasts_router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
