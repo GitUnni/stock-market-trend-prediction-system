@@ -2526,6 +2526,7 @@
             <li class="nav-item active" data-tab="portfolio">Portfolio</li>
             <li class="nav-item" data-tab="screener">Screener</li>
             <li class="nav-item" data-tab="news">News</li>
+            <li class="nav-item" data-tab="messages">Messages</li>
             <li class="nav-item" data-tab="miscellaneous">Miscellaneous</li>
         </ul>
     </div>
@@ -3530,6 +3531,16 @@
             // Kick off both fetches immediately
             loadIpoData('open');
             loadTrendsData('gainers');
+        }
+        else if (tab === 'messages') {
+            contentDisplay.innerHTML = `
+            <div id="broadcastsPanel" style="max-width:760px;margin:0 auto;">
+                <div id="broadcastsLoading" style="text-align:center;padding:40px;color:var(--text-secondary);">
+                    Loading messages…
+                </div>
+                <div id="broadcastsList"></div>
+            </div>`;
+            loadBroadcasts();
         }
     }
 
@@ -5585,6 +5596,62 @@ document.addEventListener('keydown', function(e) {
     function escHtml(str) {
         if (!str) return '';
         return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    /* ── Broadcast Messages ────────────────────────────────────────────── */
+    async function loadBroadcasts() {
+        const loading = document.getElementById('broadcastsLoading');
+        const list    = document.getElementById('broadcastsList');
+        if (!list) return;
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const resp  = await fetch('/broadcasts', {
+                headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+            });
+            if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+
+            const broadcasts = await resp.json();
+            if (loading) loading.style.display = 'none';
+
+            if (!broadcasts.length) {
+                list.innerHTML = `
+                    <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
+                        <div style="font-size:48px;margin-bottom:16px;">📭</div>
+                        <p style="font-size:16px;">No broadcast messages from admin yet.</p>
+                    </div>`;
+                return;
+            }
+
+            list.innerHTML = broadcasts.map(b => {
+                const date = b.created_at
+                    ? new Date(b.created_at).toLocaleString('en-IN', {
+                        day: 'numeric', month: 'short', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                      })
+                    : '';
+                return `
+                <div style="background:var(--surface-glass,#fff);border-radius:14px;
+                            box-shadow:var(--shadow-card,0 4px 16px rgba(0,0,0,0.08));
+                            padding:24px 28px;margin-bottom:18px;border-left:4px solid var(--accent,#3D6B9E);">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+                        <h3 style="margin:0;font-size:17px;font-weight:700;color:var(--text-primary,#2D3561);">
+                            📢 ${escHtml(b.title)}
+                        </h3>
+                        <span style="font-size:12px;color:var(--text-muted,#9BA8C0);white-space:nowrap;">${date}</span>
+                    </div>
+                    <p style="margin:0;font-size:14px;color:var(--text-secondary,#6B7A99);line-height:1.7;white-space:pre-wrap;">${escHtml(b.content)}</p>
+                </div>`;
+            }).join('');
+
+        } catch (err) {
+            if (loading) loading.style.display = 'none';
+            if (list) list.innerHTML = `
+                <div style="text-align:center;padding:40px;color:var(--negative,#E74C3C);">
+                    ⚠️ Could not load messages. Please try again later.
+                </div>`;
+            console.error('Failed to load broadcasts:', err);
+        }
     }
 
 </script>
