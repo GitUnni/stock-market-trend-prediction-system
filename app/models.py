@@ -129,3 +129,35 @@ class Broadcast(Base):
     title = Column(String, nullable=False)
     content = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Feedback(Base):
+    """
+    Table to store customer feedback — both reviews (star rating) and complaints.
+    Admin can read and reply to each entry; customers can view admin replies.
+    """
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Who submitted it
+    user_id    = Column(Integer, nullable=False, index=True)
+    user_name  = Column(String,  nullable=False)
+    user_email = Column(String,  nullable=False)
+
+    # "REVIEW" or "COMPLAINT"
+    feedback_type = Column(String, nullable=False)
+
+    # Only populated for REVIEW
+    rating  = Column(Integer, nullable=True)   # 1 – 5
+
+    # Only populated for COMPLAINT
+    subject = Column(String, nullable=True)
+
+    # Common to both
+    content = Column(String, nullable=False)
+
+    # Admin response
+    admin_reply = Column(String,  nullable=True)
+    replied_at  = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
