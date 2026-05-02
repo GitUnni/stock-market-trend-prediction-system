@@ -69,6 +69,23 @@ class FeedbackOut(BaseModel):
         from_attributes = True
 
 
+def _to_utc_iso(dt):
+    """
+    Return a UTC ISO-8601 string that always carries a timezone offset
+    (e.g. '2025-05-01T10:30:00+00:00').
+
+    SQLAlchemy may return a naive datetime even when the column is declared
+    DateTime(timezone=True) — this happens with SQLite and some PostgreSQL
+    driver configs. Tagging such values as UTC is safe because
+    server_default=func.now() / datetime.now(timezone.utc) always writes UTC.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()   # e.g. "2025-05-01T10:30:00+00:00"
+
+
 def _serialize(fb: Feedback) -> FeedbackOut:
     return FeedbackOut(
         id=fb.id,
@@ -80,8 +97,8 @@ def _serialize(fb: Feedback) -> FeedbackOut:
         subject=fb.subject,
         content=fb.content,
         admin_reply=fb.admin_reply,
-        created_at=fb.created_at.isoformat() if fb.created_at else "",
-        replied_at=fb.replied_at.isoformat() if fb.replied_at else None,
+        created_at=_to_utc_iso(fb.created_at) or "",
+        replied_at=_to_utc_iso(fb.replied_at),
     )
 
 
