@@ -1489,7 +1489,7 @@
         list.innerHTML = items.map(fb => {
             const isReview = fb.feedback_type === 'REVIEW';
             const date = fb.created_at
-                ? new Date(fb.created_at).toLocaleString('en-IN',{
+                ? new Date(fb.created_at).toLocaleString(undefined, {
                     day:'numeric',month:'short',year:'numeric',
                     hour:'2-digit',minute:'2-digit'})
                 : '';
@@ -1538,7 +1538,7 @@
 
         const isReview = fb.feedback_type === 'REVIEW';
         const date = fb.created_at
-            ? new Date(fb.created_at).toLocaleString('en-IN',{day:'numeric',month:'short',
+            ? new Date(fb.created_at).toLocaleString(undefined, {day:'numeric',month:'short',
               year:'numeric',hour:'2-digit',minute:'2-digit'})
             : '';
         const stars = isReview
