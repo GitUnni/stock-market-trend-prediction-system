@@ -52,7 +52,7 @@ body.dm-active .profile-icon {
     justify-content: center;
     position: relative;
     flex-shrink: 0;
-    margin-right: -590px;
+    margin-right: -300px;
     transition: background-color 700ms ease, box-shadow 700ms ease;
 }
 
@@ -890,6 +890,18 @@ body.dm-active .research-btn:hover {
     box-shadow: 0 0 22px rgba(0, 232, 255, 0.35);
 }
 
+/* Research Answer Box */
+body.dm-active .research-answer-box {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    border-left: 4px solid aqua;
+    box-shadow: 4px 4px 14px var(--shadow-dark), -2px -2px 8px var(--shadow-light);
+}
+
+body.dm-active .answer-text {
+    color: #c8f0ff;
+}
+
 /* Chips */
 
 body.dm-active .chip {
@@ -1420,4 +1432,495 @@ body.dm-active .predict-panel-header{
 
 body.dm-active .predict-loading-sub {
     color: #157ca5;
+}
+
+/* -- Messages + Miscellaneous tabs -- */
+
+body.dm-active .messages-panel,
+body.dm-active #tab-messages,
+body.dm-active #tab-miscellaneous {
+    --bg: #03080f;
+    --surface-glass: #060e1c;
+    --glass-border: rgba(0, 232, 255, 0.14);
+    --text-primary: #c8f0ff;
+    --text-secondary: #4ab8cc;
+    --text-muted: aqua;
+    --accent: #00e8ff;
+    --accent-dark: #007ea8;
+    --accent-deep: #0e3a55;
+    --accent-bg: rgba(0, 232, 255, 0.06);
+    --accent-bg-h: rgba(0, 232, 255, 0.12);
+}
+
+.messages-panel,
+.msg-pane,
+.msg-subtab-switcher,
+.msg-subtab-btn,
+.msg-card,
+.msg-card-header,
+.msg-card-icon,
+.msg-card-title,
+.msg-empty-icon,
+.msg-empty-text,
+.feedback-label,
+.feedback-select-wrap,
+.feedback-select,
+.feedback-select-caret,
+.feedback-input,
+.feedback-textarea,
+.star-rating,
+.rating-star,
+.rating-help-text,
+.feedback-submit-row,
+.feedback-status-msg,
+.feedback-status-text,
+.feedback-submit-btn,
+.broadcast-card,
+.broadcast-header,
+.broadcast-title,
+.broadcast-date,
+.broadcast-content,
+.feedback-card,
+.feedback-card-header,
+.feedback-card-left,
+.feedback-date,
+.feedback-badge,
+.feedback-subject,
+.feedback-content,
+.admin-reply-box,
+.admin-reply-label,
+.admin-reply-text,
+.admin-pending-box,
+.admin-pending-text,
+.misc-card,
+.misc-card-header,
+.misc-card-header h3,
+.misc-tab-btn,
+.misc-table th,
+.misc-table td,
+.misc-rank,
+.ipo-detail-card,
+.ipo-card-header,
+.ipo-card-logo,
+.ipo-card-logo-placeholder,
+.ipo-card-name,
+.ipo-card-type,
+.ipo-card-price,
+.ipo-card-body,
+.ipo-quick-pill,
+.ipo-acc-item,
+.ipo-acc-trigger,
+.ipo-acc-body,
+.ipo-sub-item {
+    transition:
+        background-color 500ms ease,
+        background       500ms ease,
+        color            500ms ease,
+        border-color     500ms ease,
+        box-shadow       500ms ease;
+}
+
+/* Messages tab */
+
+body.dm-active .msg-subtab-switcher {
+    background: #03080f;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: inset 4px 4px 10px rgba(0,0,0,0.55), inset -4px -4px 10px rgba(0,232,255,0.06);
+}
+
+body.dm-active .msg-subtab-btn {
+    background: transparent;
+    color: #4ab8cc;
+    border: 1px solid transparent;
+    box-shadow: none;
+}
+
+body.dm-active .msg-subtab-btn:hover {
+    color: #00e8ff;
+    border-color: rgba(0, 232, 255, 0.22);
+    background: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .msg-subtab-btn.active {
+    background: rgba(0, 232, 255, 0.14);
+    color: #00e8ff;
+    border-color: rgba(0, 232, 255, 0.35);
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.28), inset 0 0 14px rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .msg-loading,
+body.dm-active .my-feedback-loading,
+body.dm-active .msg-empty-state {
+    color: #4ab8cc;
+}
+
+body.dm-active .msg-empty-icon {
+    color: #1e6a88;
+}
+
+body.dm-active .msg-error-state {
+    color: #ff6b6b;
+}
+
+body.dm-active .msg-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .msg-card-title,
+body.dm-active .broadcast-title,
+body.dm-active .feedback-subject {
+    color: #c8f0ff;
+}
+
+body.dm-active .feedback-label,
+body.dm-active .broadcast-content,
+body.dm-active .feedback-content,
+body.dm-active .admin-reply-text {
+    color: #4ab8cc;
+}
+
+body.dm-active .feedback-select,
+body.dm-active .feedback-input,
+body.dm-active .feedback-textarea {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.20);
+    color: #c8f0ff;
+    box-shadow: inset 4px 4px 10px rgba(0,0,0,0.5), inset -4px -4px 10px rgba(0,232,255,0.06);
+}
+
+body.dm-active .feedback-select:focus,
+body.dm-active .feedback-input:focus,
+body.dm-active .feedback-textarea:focus {
+    border-color: #00e8ff;
+    box-shadow: 0 0 14px rgba(0, 232, 255, 0.38), inset 4px 4px 10px rgba(0,0,0,0.5);
+}
+
+body.dm-active .feedback-select option {
+    background: #03080f;
+    color: #c8f0ff;
+}
+
+body.dm-active .feedback-input::placeholder,
+body.dm-active .feedback-textarea::placeholder {
+    color: #1e6a88;
+}
+
+body.dm-active .rating-help-text {
+    color: #1e6a88;
+}
+
+body.dm-active .rating-star,
+body.dm-active .feedback-list-stars .star {
+    color: #0e3a55;
+    text-shadow: none;
+}
+
+body.dm-active .rating-star.active,
+body.dm-active .feedback-list-stars .star.filled {
+    color: #f39c12;
+    text-shadow: 0 0 10px rgba(243, 156, 18, 0.28);
+}
+
+body.dm-active .feedback-submit-btn {
+    background: linear-gradient(135deg, rgba(0, 184, 255, 0.24), rgba(0, 232, 255, 0.12));
+    border: 1px solid rgba(0, 232, 255, 0.35);
+    color: #00e8ff;
+    box-shadow: 0 0 16px rgba(0, 232, 255, 0.22);
+}
+
+body.dm-active .feedback-submit-btn:hover:not(:disabled) {
+    box-shadow: 0 0 24px rgba(0, 232, 255, 0.35);
+    transform: translateY(-1px);
+}
+
+body.dm-active .feedback-submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+body.dm-active .broadcast-card,
+body.dm-active .feedback-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    border-left: 4px solid #00e8ff;
+    box-shadow: 0 5px 22px rgba(0, 0, 0, 0.72), 0 0 24px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .broadcast-card:hover,
+body.dm-active .feedback-card:hover {
+    border-color: rgba(0, 232, 255, 0.28);
+    border-left-color: #00e8ff;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.82), 0 0 32px rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .feedback-badge.review {
+    background: rgba(243, 156, 18, 0.12);
+    border-color: rgba(243, 156, 18, 0.35);
+    color: #f39c12;
+}
+
+body.dm-active .feedback-badge.complaint {
+    background: rgba(231, 76, 60, 0.12);
+    border-color: rgba(231, 76, 60, 0.35);
+    color: #ff6b6b;
+}
+
+body.dm-active .admin-reply-box,
+body.dm-active .admin-pending-box {
+    background: #03080f;
+    border-left-color: #00e8ff;
+}
+
+body.dm-active .admin-reply-label {
+    color: #00e8ff;
+}
+
+body.dm-active .admin-pending-text {
+    color: #1e6a88;
+}
+
+body.dm-active .feedback-status-text.success {
+    color: #2ecc71;
+}
+
+body.dm-active .feedback-status-text.error {
+    color: #ff6b6b;
+}
+
+/* Miscellaneous tab cards */
+
+body.dm-active .misc-card {
+    background: #060e1c;
+    border: 1px solid rgba(0, 232, 255, 0.14);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.75), 0 0 28px rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .misc-card:hover {
+    border-color: rgba(0, 232, 255, 0.28);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.85), 0 0 36px rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .misc-card-header {
+    background: #03080f;
+    border-bottom-color: rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .misc-card-header h3 {
+    color: #c8f0ff;
+}
+
+body.dm-active .misc-card-icon {
+    filter: drop-shadow(0 0 8px rgba(0, 232, 255, 0.24));
+}
+
+body.dm-active .misc-tab-btn {
+    background: #03080f;
+    color: #4ab8cc;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+    box-shadow: 4px 4px 12px rgba(0,0,0,0.55), -4px -4px 12px rgba(0,232,255,0.06);
+}
+
+body.dm-active .misc-tab-btn:hover {
+    color: #00e8ff;
+    border-color: rgba(0, 232, 255, 0.28);
+    background: rgba(0, 232, 255, 0.07);
+    box-shadow: 0 0 12px rgba(0, 232, 255, 0.20);
+}
+
+body.dm-active .misc-tab-btn.active {
+    background: rgba(0, 232, 255, 0.10);
+    color: #00e8ff;
+    border-color: rgba(0, 232, 255, 0.35);
+    box-shadow: inset 0 0 16px rgba(0, 232, 255, 0.12), 0 0 12px rgba(0, 232, 255, 0.18);
+}
+
+body.dm-active .misc-table-wrap {
+    background: #060e1c;
+}
+
+body.dm-active .misc-table th {
+    color: #4ab8cc;
+    border-bottom-color: rgba(0, 232, 255, 0.14);
+}
+
+body.dm-active .misc-table td {
+    color: #c8f0ff;
+    border-bottom-color: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .misc-table td strong {
+    color: #00e8ff;
+}
+
+body.dm-active .misc-table tr:hover td {
+    background: rgba(0, 232, 255, 0.04);
+}
+
+body.dm-active .misc-badge.open {
+    background: rgba(39, 174, 96, 0.15);
+    color: #2ecc71;
+    border: 1px solid rgba(39, 174, 96, 0.28);
+}
+
+body.dm-active .misc-badge.closed {
+    background: rgba(127, 140, 141, 0.14);
+    color: #4ab8cc;
+    border: 1px solid rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .misc-badge.upcoming {
+    background: rgba(243, 156, 18, 0.14);
+    color: #f39c12;
+    border: 1px solid rgba(243, 156, 18, 0.28);
+}
+
+body.dm-active .misc-pos { color: #2ecc71; }
+body.dm-active .misc-neg { color: #ff6b6b; }
+body.dm-active .misc-neu { color: #1e6a88; }
+
+body.dm-active .misc-loading,
+body.dm-active .misc-empty {
+    color: #1e6a88;
+}
+
+body.dm-active .misc-empty-title {
+    color: #c8f0ff;
+}
+
+body.dm-active .misc-empty-note {
+    color: #1e6a88;
+}
+
+body.dm-active .misc-error {
+    color: #ff6b6b;
+}
+
+body.dm-active .misc-spinner {
+    border-color: rgba(0, 232, 255, 0.12);
+    border-top-color: #00e8ff;
+    filter: drop-shadow(0 0 8px rgba(0, 232, 255, 0.35));
+}
+
+body.dm-active .misc-rank {
+    background: #03080f;
+    color: #00e8ff;
+    border: 1px solid rgba(0, 232, 255, 0.18);
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.55), -2px -2px 6px rgba(0,232,255,0.06);
+}
+
+/* IPO detail cards inside Miscellaneous */
+
+body.dm-active .ipo-detail-card {
+    background: #03080f;
+    border-color: rgba(0, 232, 255, 0.12);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.70), 0 0 18px rgba(0, 232, 255, 0.05);
+}
+
+body.dm-active .ipo-detail-card:hover {
+    border-color: rgba(0, 232, 255, 0.26);
+    box-shadow: 0 6px 26px rgba(0, 0, 0, 0.82), 0 0 26px rgba(0, 232, 255, 0.10);
+}
+
+body.dm-active .ipo-card-header:hover {
+    background: rgba(0, 232, 255, 0.04);
+}
+
+body.dm-active .ipo-card-logo {
+    background: #060e1c;
+    border-color: rgba(0, 232, 255, 0.16);
+}
+
+body.dm-active .ipo-card-logo-placeholder {
+    background: rgba(0, 232, 255, 0.08);
+    border-color: rgba(0, 232, 255, 0.18);
+    color: #00e8ff;
+}
+
+body.dm-active .ipo-card-name,
+body.dm-active .ipo-card-price {
+    color: #c8f0ff;
+}
+
+body.dm-active .ipo-card-body {
+    border-top-color: rgba(0, 232, 255, 0.10);
+}
+
+body.dm-active .ipo-quick-pill {
+    background: #060e1c;
+    color: aqua;
+    border: 1px solid rgba(0, 232, 255, 0.10);
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.55), -2px -2px 6px rgba(0,232,255,0.05);
+}
+
+body.dm-active .ipo-quick-pill span.lbl {
+    color: #aeff00;
+}
+
+body.dm-active .ipo-acc-item {
+    background: #060e1c;
+    border-color: rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .ipo-acc-trigger {
+    color: #00e8ff;
+}
+
+body.dm-active .ipo-acc-trigger:hover {
+    background: rgba(0, 232, 255, 0.05);
+}
+
+body.dm-active .ipo-acc-trigger .acc-chevron {
+    color: #1e6a88;
+}
+
+body.dm-active .ipo-acc-body {
+    border-top-color: rgba(0, 232, 255, 0.08);
+}
+
+body.dm-active .ipo-kv .kv-value,
+body.dm-active .ipo-gmp-trends td {
+    color: #aeff00;
+}
+
+body.dm-active .ipo-gmp-cell,
+body.dm-active .ipo-sub-item .sub-val {
+    color: #00e8ff;
+}
+
+body.dm-active .ipo-gmp-gain {
+    color: #2ecc71;
+}
+
+body.dm-active .ipo-about-text,
+body.dm-active .ipo-bullet-list li,
+body.dm-active .ipo-sub-item .sub-detail {
+    color: #4ab8cc;
+}
+
+body.dm-active .ipo-about-text::-webkit-scrollbar-thumb {
+    background: rgba(0, 232, 255, 0.22);
+}
+
+body.dm-active .ipo-gmp-trends th {
+    border-bottom-color: rgba(0, 232, 255, 0.12);
+}
+
+body.dm-active .ipo-gmp-trends td {
+    border-bottom-color: rgba(0, 232, 255, 0.06);
+}
+
+body.dm-active .ipo-sub-item {
+    background: #03080f;
+    border: 1px solid rgba(0, 232, 255, 0.10);
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.55), -2px -2px 6px rgba(0,232,255,0.05);
+}
+
+body.dm-active .ipo-sub-item .sub-cat {
+    color: #1e6a88;
+}
+
+body.dm-active .trends-index-cell {
+    color: #1e6a88;
 }
