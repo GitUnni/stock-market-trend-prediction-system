@@ -1,1 +1,47 @@
-Generic single-database configuration.
+# Alembic Migration Guide
+
+This folder contains database migration configuration for the project.
+
+## Files
+
+- `env.py` — Alembic runtime environment, wired to SQLAlchemy metadata in `app.models`.
+- `script.py.mako` — Template used to generate new migration files.
+- `versions/` — Versioned migration scripts.
+
+## Common commands
+
+Run from the repository root.
+
+### 1) Check current revision
+
+```bash
+uv run alembic current
+```
+
+### 2) Apply pending migrations
+
+```bash
+uv run alembic upgrade head
+```
+
+### 3) Create a new migration after model changes
+
+```bash
+uv run alembic revision --autogenerate -m "describe change"
+uv run alembic upgrade head
+```
+
+### 4) Existing database bootstrap (already has tables)
+
+If your database tables were created before Alembic, stamp the revision first:
+
+```bash
+uv run alembic stamp head
+```
+
+This marks the schema as managed at the current head without recreating existing tables.
+
+## Notes
+
+- Production deployments should use PostgreSQL via `DATABASE_URL`.
+- Keep migrations forward-only where possible; test migrations in staging before production.

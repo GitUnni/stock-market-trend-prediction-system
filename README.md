@@ -90,21 +90,49 @@ The platform supports three distinct user roles: **Customer**, **Financial Insti
 
 ```
 stock-market-trend-prediction-system/
+├── alembic/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── 0001_initial_schema.py
 ├── app/
-│   ├── .env                  # Environment variables (NOT committed — create manually)
-│   ├── main.py               # FastAPI app entry point
-│   ├── auth.py               # JWT authentication & database session
-│   ├── models.py             # SQLAlchemy database models
-│   ├── news.py               # News fetching & sentiment analysis (MarketAux)
-│   ├── research.py           # Equity research tool (Groq + Tavily)
+│   ├── .env                       # Environment variables (NOT committed — create manually)
+│   ├── main.py                    # FastAPI app entry point
+│   ├── auth.py                    # JWT authentication & database session
+│   ├── models.py                  # SQLAlchemy database models
+│   ├── database.py                # SQLAlchemy engine/session/base
+│   ├── deps.py                    # Shared FastAPI dependencies
+│   ├── models.py                  # SQLAlchemy models
+│   ├── schemas.py                 # Pydantic request/response schemas
+│   ├── manualadd.py               # Manual admin/bootstrap helpers
+│   ├── sync_stocks.py             # Stock master sync job
+│   ├── update_stock_metrics.py    # Stock metrics update job
 │   ├── routes/
+│   │   └── __init__.py
 │   │   ├── auth.py           # Auth routes (login, register, email verification)
 │   │   ├── admin.py          # Admin routes
-│   │   ├── customer.py       # Customer routes
-│   │   └── financial.py      # Financial Institution routes
+│   │   ├── broadcasts.py
+│   │   ├── feedback.py
+│   │   ├── miscellaneous.py
+│   │   ├── news.py
+│   │   ├── pages.py
+│   │   ├── portfolio.py
+│   │   ├── predict.py
+│   │   ├── research.py
+│   │   ├── screener.py
+│   │   ├── stocks.py
+│   │   ├── test.py
 │   ├── templates/            # Jinja2 HTML templates
-│   └── static/               # CSS and JavaScript assets
+│   │   ├── dashboards/
+│   │   │   ├── admin_dashboard.html
+│   │   │   ├── customer_dashboard.html
+│   │   │   └── fin_dashboard.html
+│   └── static/
+│       ├── css/
+│       ├── js/
+│       └── img/
 ├── .gitignore
+├── alembic.ini
 ├── .python-version           # Python 3.12
 ├── pyproject.toml            # Project dependencies (uv)
 └── README.md
@@ -283,3 +311,47 @@ This project is intended for academic and educational purposes.
 ---
 
 > **Disclaimer:** This system is built for educational purposes only and should not be considered financial advice. Always consult a qualified financial advisor before making investment decisions.
+---
+
+## Database & Migrations (Production)
+
+For production deployment (e.g., Render), use **PostgreSQL** instead of SQLite.
+
+### 1) Set DATABASE_URL
+
+Set `DATABASE_URL` in your deployment environment (example with Neon):
+
+```env
+DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>/<db>?sslmode=require
+```
+
+> Local development can still use SQLite by leaving `DATABASE_URL` unset.
+
+### 2) Run Alembic migrations
+
+This project now includes Alembic config and an initial migration.
+
+```bash
+alembic upgrade head
+```
+
+
+### Existing SQLite database already has tables?
+
+If your database was created before Alembic (tables already exist), run:
+
+```bash
+alembic stamp head
+```
+
+`stamp` marks the current schema version without trying to recreate tables.
+After stamping, future schema changes should use normal migrations (`revision` + `upgrade`).
+
+### 3) Create new migrations when models change
+
+```bash
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
+
+Use migrations for schema changes instead of `Base.metadata.create_all(...)` in app startup.
