@@ -1048,11 +1048,20 @@
 
     /* -- Users -- */
 
+    function authHeaders(extra = {}) {
+        const token = localStorage.getItem('access_token');
+        return {
+            ...extra,
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        };
+    }
+
+
     async function loadUsers() {
         try {
             const response = await fetch('/auth/admin/users', {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+                headers: authHeaders({ 'Content-Type': 'application/json' })
             });
 
             if (!response.ok) throw new Error('Failed to load users');
@@ -1166,7 +1175,7 @@
         try {
             const response = await fetch(`/auth/admin/users/${userId}`, {
                 method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' }
+                headers: authHeaders({ 'Content-Type': 'application/json' })
             });
 
             const data = await response.json();
@@ -1205,7 +1214,7 @@
         try {
             const response = await fetch('/auth/admin/pending-institutions', {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+                headers: authHeaders({ 'Content-Type': 'application/json' })
             });
 
             if (!response.ok) throw new Error('Failed to load pending institutions');
@@ -1312,7 +1321,7 @@
         try {
             const response = await fetch(`/auth/admin/approve-institution/${institutionId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: authHeaders({ 'Content-Type': 'application/json' })
             });
             const data = await response.json();
 
@@ -1341,7 +1350,7 @@
         try {
             const response = await fetch(`/auth/admin/reject-institution/${institutionId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: authHeaders({ 'Content-Type': 'application/json' })
             });
             const data = await response.json();
 

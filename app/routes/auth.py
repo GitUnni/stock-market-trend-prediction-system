@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 import secrets
 import smtplib
@@ -6,9 +7,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from app import models, schemas
-from app.auth import hash_password, verify_password, create_access_token
+from app.auth import hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM
 from app.deps import get_db
 import os
+from jose import jwt, JWTError
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv("app/.env")
@@ -17,6 +20,32 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 # Store verification codes temporarily (in production, use Redis or database)
 verification_codes = {}
+
+# -- Auth dependency for admin endpoints --
+_bearer = HTTPBearer(auto_error=False)
+
+
+def get_current_user_payload(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> dict:
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated — Bearer token missing",
+        )
+    try:
+        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except (JWTError, ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+
+def require_admin(token_payload: dict = Depends(get_current_user_payload)) -> dict:
+    if token_payload.get("role") != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return token_payload
 
 
 def generate_verification_code():
@@ -223,7 +252,10 @@ def verify_email(email: str, code: str, db: Session = Depends(get_db)):
 
 
 @router.get("/admin/pending-institutions")
-def get_pending_institutions(db: Session = Depends(get_db)):
+def get_pending_institutions(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
     """Get all institutions pending admin approval"""
     pending_institutions = db.query(models.User).filter(
         models.User.role == "INSTITUTION",
@@ -250,7 +282,11 @@ def get_pending_institutions(db: Session = Depends(get_db)):
 
 
 @router.post("/admin/approve-institution/{institution_id}")
-def approve_institution(institution_id: int, db: Session = Depends(get_db)):
+def approve_institution(
+    institution_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
     """Approve a financial institution"""
     institution = db.query(models.User).filter(
         models.User.id == institution_id,
@@ -271,7 +307,11 @@ def approve_institution(institution_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/reject-institution/{institution_id}")
-def reject_institution(institution_id: int, db: Session = Depends(get_db)):
+def reject_institution(
+    institution_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
     """Reject a financial institution"""
     institution = db.query(models.User).filter(
         models.User.id == institution_id,
@@ -289,7 +329,10 @@ def reject_institution(institution_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/admin/users")
-def get_all_users(db: Session = Depends(get_db)):
+def get_all_users(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
     """Get all registered users"""
     users = db.query(models.User).all()
 
@@ -308,7 +351,11 @@ def get_all_users(db: Session = Depends(get_db)):
 
 
 @router.delete("/admin/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
     """Delete a user by ID"""
     user = db.query(models.User).filter(models.User.id == user_id).first()
 
