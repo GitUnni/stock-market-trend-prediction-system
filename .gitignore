@@ -33,3 +33,6 @@ Thumbs.db
 
 # Misc
 *.lock
+
+#Patch file
+app/changes.patch
