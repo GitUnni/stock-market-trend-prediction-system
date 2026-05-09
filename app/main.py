@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from app.database import Base, engine
 from app.routes.auth import router as auth_router
 from app.routes.pages import router as pages_router
 from app.routes.stocks import router as stocks_router
@@ -12,8 +11,6 @@ from app.routes.news import router as news_router
 from app.routes.miscellaneous import router as miscellaneous_router
 from app.routes.broadcasts import router as broadcasts_router
 from app.routes.feedback import router as feedback_router
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
 
 app.include_router(auth_router)
