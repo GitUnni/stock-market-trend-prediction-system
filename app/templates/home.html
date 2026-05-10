@@ -1,27 +1,271 @@
 {% extends "base.html" %}
-
+{% block title %}Landing Page{% endblock %}
 {% block content %}
 <style>
-    body{
-    background-image: url('../static/img/bull_bear.jpg');
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-position: center;
-    overflow-y: hidden;
-    height: 100vh;
+    body {
+        background-image: url('../static/img/bull_bear.jpg');
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+        overflow-y: hidden;
+        height: 100vh;
     }
+
+    .home-actions {
+        position: relative;
+        bottom: 120px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+    }
+
+    /* ============================= */
+    /* About Transparent Water Drop   */
+    /* ============================= */
+
+    .water-button {
+        position: relative;
+        width: 105px;
+        height: 105px;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        padding: 0;
+        isolation: isolate;
+    }
+
+    .drop-visual {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+
+        border-radius: 58% 42% 63% 37% / 45% 59% 41% 55%;
+
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+
+        backdrop-filter: blur(1.5px) saturate(1.2);
+        -webkit-backdrop-filter: blur(1.5px) saturate(1.2);
+
+        box-shadow:
+            inset 10px 10px 18px rgba(255, 255, 255, 0.28),
+            inset -12px -12px 20px rgba(0, 0, 0, 0.28),
+            14px 18px 22px rgba(0, 0, 0, 0.28),
+            0 0 18px rgba(255, 255, 255, 0.12);
+
+        animation:
+            calmMorph 8s ease-in-out infinite alternate,
+            gentleFloat 5s ease-in-out infinite;
+
+        transition:
+            transform 0.3s ease,
+            opacity 0.25s ease,
+            filter 0.3s ease,
+            box-shadow 0.3s ease;
+    }
+
+    .drop-visual::before {
+        content: "";
+        position: absolute;
+        top: 24%;
+        left: 28%;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        opacity: 0.9;
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.35);
+    }
+
+    .drop-visual::after {
+        content: "";
+        position: absolute;
+        top: 41%;
+        left: 43%;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        opacity: 0.9;
+    }
+
+    .drop-text {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+
+        display: grid;
+        place-items: center;
+
+        color: #ffffff;
+        font-size: 0.92rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
+
+        pointer-events: none;
+        user-select: none;
+
+        transform: none;
+        transition: opacity 0.2s ease;
+    }
+
+    .water-button:hover .drop-visual {
+        transform: scale(1.06);
+        filter: none;
+
+        box-shadow:
+            inset 12px 12px 20px rgba(255, 255, 255, 0.35),
+            inset -14px -14px 22px rgba(0, 0, 0, 0.34),
+            18px 24px 28px rgba(0, 0, 0, 0.35),
+            0 0 26px rgba(255, 255, 255, 0.2);
+
+        animation:
+            hoverShake 0.38s linear infinite,
+            aggressivePulse 0.65s ease-in-out infinite alternate;
+    }
+
+    .water-button:active .drop-visual {
+        transform: scale(0.96);
+    }
+
+    .water-button.is-blasting {
+        pointer-events: none;
+    }
+
+    .water-button.is-blasting .drop-visual {
+        opacity: 0;
+        transform: scale(0.2);
+        filter: blur(8px);
+    }
+
+    .water-button.is-blasting .drop-text {
+        opacity: 0;
+    }
+
+    .droplet {
+        position: fixed;
+        left: var(--x);
+        top: var(--y);
+        width: var(--size);
+        height: var(--size);
+
+        border-radius: 58% 42% 63% 37% / 45% 59% 41% 55%;
+
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+
+        backdrop-filter: blur(1px) saturate(1.2);
+        -webkit-backdrop-filter: blur(1px) saturate(1.2);
+
+        box-shadow:
+            inset 4px 4px 8px rgba(255, 255, 255, 0.32),
+            inset -5px -5px 9px rgba(0, 0, 0, 0.32),
+            6px 8px 12px rgba(0, 0, 0, 0.28);
+
+        pointer-events: none;
+        z-index: 100;
+
+        animation: dropletBlast 900ms cubic-bezier(0.17, 0.84, 0.35, 1) forwards;
+    }
+
+    @keyframes calmMorph {
+        0% {
+            border-radius: 58% 42% 63% 37% / 45% 59% 41% 55%;
+        }
+
+        25% {
+            border-radius: 45% 55% 48% 52% / 60% 40% 58% 42%;
+        }
+
+        50% {
+            border-radius: 62% 38% 45% 55% / 42% 64% 36% 58%;
+        }
+
+        75% {
+            border-radius: 40% 60% 61% 39% / 55% 43% 57% 45%;
+        }
+
+        100% {
+            border-radius: 56% 44% 38% 62% / 47% 54% 46% 53%;
+        }
+    }
+
+    @keyframes gentleFloat {
+        0%, 100% {
+            translate: 0 0;
+        }
+
+        50% {
+            translate: 0 -8px;
+        }
+    }
+
+    @keyframes hoverShake {
+        0% {
+            translate: 0 0;
+        }
+
+        25% {
+            translate: 3px -2px;
+        }
+
+        50% {
+            translate: -2px 3px;
+        }
+
+        75% {
+            translate: 2px 2px;
+        }
+
+        100% {
+            translate: 0 0;
+        }
+    }
+
+    @keyframes aggressivePulse {
+        from {
+            scale: 1;
+        }
+
+        to {
+            scale: 1.04;
+        }
+    }
+
+    @keyframes dropletBlast {
+        0% {
+            transform: translate(0, 0) scale(1);
+            opacity: 1;
+        }
+
+        70% {
+            opacity: 0.9;
+        }
+
+        100% {
+            transform:
+                translate(var(--dx), var(--dy))
+                scale(0.15)
+                rotate(var(--rotation));
+            opacity: 0;
+        }
+    }
+
+    /* ============================= */
+    /* Push to get started button     */
+    /* ============================= */
 
     .pushable {
         position: relative;
-        bottom: 120px;
         border: none;
         background: transparent;
         padding: 0;
         cursor: pointer;
         outline-offset: 4px;
         transition: filter 250ms;
-      }
-      .shadow {
+    }
+
+    .shadow {
         position: absolute;
         top: 0;
         left: 0;
@@ -30,11 +274,12 @@
         border-radius: 12px;
         transform: translateY(2px);
         transition:
-          transform
-          600ms
-          cubic-bezier(.3, .7, .4, 1);
-      }
-      .edge {
+            transform
+            600ms
+            cubic-bezier(.3, .7, .4, 1);
+    }
+
+    .edge {
         position: absolute;
         top: 0;
         left: 0;
@@ -42,14 +287,15 @@
         height: 100%;
         border-radius: 12px;
         background: linear-gradient(
-          to left,
-          hsl(340deg 100% 16%) 0%,
-          hsl(340deg 100% 32%) 8%,
-          hsl(340deg 100% 32%) 92%,
-          hsl(340deg 100% 16%) 100%
+            to left,
+            hsl(340deg 100% 16%) 0%,
+            hsl(340deg 100% 32%) 8%,
+            hsl(340deg 100% 32%) 92%,
+            hsl(340deg 100% 16%) 100%
         );
-      }
-      .front {
+    }
+
+    .front {
         display: block;
         position: relative;
         padding: 12px 42px;
@@ -60,49 +306,187 @@
         will-change: transform;
         transform: translateY(-4px);
         transition:
-          transform
-          600ms
-          cubic-bezier(.3, .7, .4, 1);
-      }
-      .pushable:hover {
+            transform
+            600ms
+            cubic-bezier(.3, .7, .4, 1);
+    }
+
+    .pushable:hover {
         filter: brightness(110%);
-      }
-      .pushable:hover .front {
+    }
+
+    .pushable:hover .front {
         transform: translateY(-6px);
         transition:
-          transform
-          250ms
-          cubic-bezier(.3, .7, .4, 1.5);
-      }
-      .pushable:active .front {
+            transform
+            250ms
+            cubic-bezier(.3, .7, .4, 1.5);
+    }
+
+    .pushable:active .front {
         transform: translateY(-2px);
         transition: transform 34ms;
-      }
-      .pushable:hover .shadow {
+    }
+
+    .pushable:hover .shadow {
         transform: translateY(4px);
         transition:
-          transform
-          250ms
-          cubic-bezier(.3, .7, .4, 1.5);
-      }
-      .pushable:active .shadow {
+            transform
+            250ms
+            cubic-bezier(.3, .7, .4, 1.5);
+    }
+
+    .pushable:active .shadow {
         transform: translateY(1px);
         transition: transform 34ms;
-      }
-      .pushable:focus:not(:focus-visible) {
-        outline: none;
-      }
+    }
 
+    .pushable:focus:not(:focus-visible) {
+        outline: none;
+    }
 </style>
+
 <div class="center">
-    <a href="/login">
-        <button class="pushable">
-            <span class="shadow"></span>
-            <span class="edge"></span>
-            <span class="front">
-                Push to get started!
-            </span>
+    <div class="home-actions">
+
+        <button class="water-button" id="aboutButton" aria-label="Go to About page">
+            <span class="drop-visual"></span>
+            <span class="drop-text">About</span>
         </button>
-    </a>
+
+        <a href="/login">
+            <button class="pushable">
+                <span class="shadow"></span>
+                <span class="edge"></span>
+                <span class="front">
+                    Push to get started!
+                </span>
+            </button>
+        </a>
+
+    </div>
 </div>
+
+<audio id="dropSound" src="../static/audio/droplet.mp3" preload="auto"></audio>
+
+<script>
+    const button = document.getElementById("aboutButton");
+    const dropVisual = button.querySelector(".drop-visual");
+    const dropSound = document.getElementById("dropSound");
+
+    let hoverMorphInterval = null;
+    let isBlasting = false;
+    let redirectTimer = null;
+
+    function randomBetween(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    function randomRadius() {
+        const values = Array.from({ length: 8 }, () =>
+            Math.round(randomBetween(28, 72))
+        );
+
+        return `
+            ${values[0]}% ${values[1]}% ${values[2]}% ${values[3]}% /
+            ${values[4]}% ${values[5]}% ${values[6]}% ${values[7]}%
+        `;
+    }
+
+    function resetAboutButton() {
+        isBlasting = false;
+
+        clearInterval(hoverMorphInterval);
+        hoverMorphInterval = null;
+
+        if (redirectTimer) {
+            clearTimeout(redirectTimer);
+            redirectTimer = null;
+        }
+
+        button.classList.remove("is-blasting");
+
+        dropVisual.style.transition = "";
+        dropVisual.style.borderRadius = "";
+
+        document.querySelectorAll(".droplet").forEach(droplet => {
+            droplet.remove();
+        });
+    }
+
+    window.addEventListener("pageshow", () => {
+        resetAboutButton();
+    });
+
+    button.addEventListener("mouseenter", () => {
+        if (isBlasting) return;
+
+        dropVisual.style.transition = "border-radius 180ms ease";
+
+        hoverMorphInterval = setInterval(() => {
+            dropVisual.style.borderRadius = randomRadius();
+        }, 110);
+    });
+
+    button.addEventListener("mouseleave", () => {
+        clearInterval(hoverMorphInterval);
+        hoverMorphInterval = null;
+
+        dropVisual.style.transition = "";
+        dropVisual.style.borderRadius = "";
+    });
+
+    button.addEventListener("click", () => {
+        if (isBlasting) return;
+
+        isBlasting = true;
+        clearInterval(hoverMorphInterval);
+
+        dropSound.currentTime = 0;
+        dropSound.play().catch(error => {
+            console.log("Audio play failed:", error);
+        });
+
+        const rect = button.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        button.classList.add("is-blasting");
+
+        createDroplets(centerX, centerY);
+
+        redirectTimer = setTimeout(() => {
+            window.location.href = "/about";
+        }, 1050);
+    });
+
+    function createDroplets(centerX, centerY) {
+        const dropletCount = 46;
+
+        for (let i = 0; i < dropletCount; i++) {
+            const droplet = document.createElement("span");
+            droplet.className = "droplet";
+
+            const angle = (Math.PI * 2 * i) / dropletCount + randomBetween(-0.25, 0.25);
+            const distance = randomBetween(130, 340);
+            const size = randomBetween(6, 18);
+
+            const dx = Math.cos(angle) * distance;
+            const dy = Math.sin(angle) * distance;
+
+            droplet.style.setProperty("--x", `${centerX - size / 2}px`);
+            droplet.style.setProperty("--y", `${centerY - size / 2}px`);
+            droplet.style.setProperty("--size", `${size}px`);
+            droplet.style.setProperty("--dx", `${dx}px`);
+            droplet.style.setProperty("--dy", `${dy}px`);
+            droplet.style.setProperty("--rotation", `${randomBetween(-260, 260)}deg`);
+
+            document.body.appendChild(droplet);
+
+            setTimeout(() => {
+                droplet.remove();
+            }, 950);
+        }
+    }
+</script>
 {% endblock %}
