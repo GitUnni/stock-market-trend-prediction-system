@@ -1,0 +1,393 @@
+{% extends "base1.html" %}
+{% block title %}About us{% endblock %}
+{% block content %}
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            background: #eff0f4;
+            color: #111111;
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            line-height: 1.6;
+        }
+
+        .about-page {
+            width: min(1100px, 92%);
+            margin: 0 auto;
+            padding: 80px 0;
+        }
+
+        .hero {
+            min-height: 75vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+        }
+
+        .back-button-wrap {
+            position: absolute;
+            top: -40px;
+            left: -90px;
+            margin-bottom: 0;
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .go-back-button {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+
+            background-color: #000;
+            border: 2px solid #000;
+            color: white;
+
+            min-width: 190px;
+            padding: 15px 32px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+
+            overflow: hidden;
+            transition: all 0.5s ease;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .go-back-button:hover {
+            transform: scale(1.1) rotate(5deg);
+            background-color: red;
+            color: #000;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            letter-spacing: 2px;
+            animation: glow 1.5s infinite;
+        }
+
+        .go-back-button::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+
+            width: 100%;
+            height: 100%;
+
+            background: linear-gradient(120deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.4),
+                    transparent);
+
+            transition: 0.5s;
+        }
+
+        .go-back-button:hover::before {
+            left: 100%;
+        }
+
+        .go-back-button span {
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes glow {
+
+            0%,
+            100% {
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            }
+
+            50% {
+                box-shadow: 0 5px 25px rgba(255, 0, 0, 0.6);
+            }
+        }
+
+        .hero h1 {
+            max-width: 900px;
+            margin: 0 0 24px;
+            font-size: clamp(2rem, 5vw, 4.5rem);
+            line-height: 1.08;
+            letter-spacing: -0.04em;
+            color: #111111;
+        }
+
+        .hero p {
+            max-width: 850px;
+            margin: 0;
+            font-size: 1.1rem;
+            color: #555555;
+        }
+
+        .section-title {
+            margin: 0 0 28px;
+            font-size: clamp(1.8rem, 3vw, 2.5rem);
+            line-height: 1.2;
+            letter-spacing: -0.03em;
+            color: #111111;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+            margin-top: 40px;
+            width: 100%;
+        }
+
+        .feature-card {
+            width: 100%;
+            background: #eff0f4;
+            border-radius: 28px;
+            padding: 38px;
+            box-shadow:
+                inset 12px 12px 18px rgba(0, 0, 0, 0.04),
+                18px 24px 22px rgba(0, 0, 0, 0.05),
+                inset -14px -14px 20px rgba(255, 255, 255, 0.85);
+        }
+
+        .feature-card h2 {
+            margin: 0 0 22px;
+            font-size: 1.45rem;
+            line-height: 1.2;
+            color: #111111;
+        }
+
+        .feature-card ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: grid;
+            gap: 14px;
+        }
+
+        .feature-card li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            color: #333333;
+            font-size: 0.98rem;
+        }
+
+        .feature-card li span {
+            line-height: 1.5;
+        }
+
+        .tick {
+            flex: 0 0 auto;
+            font-size: 1rem;
+            margin-top: 1px;
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translateY(45px);
+            transition:
+                opacity 0.8s ease,
+                transform 0.8s ease;
+            will-change: opacity, transform;
+        }
+
+        .reveal.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (max-width: 850px) {
+            .about-page {
+                padding: 56px 0;
+            }
+
+            .hero {
+                min-height: auto;
+                padding: 40px 0;
+            }
+
+            .back-button-wrap {
+                position: relative;
+                top: auto;
+                left: auto;
+                margin-bottom: 34px;
+            }
+
+            .feature-card {
+                padding: 26px;
+                border-radius: 22px;
+            }
+
+            .go-back-button {
+                min-width: 160px;
+                padding: 12px 24px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="about-page">
+
+        <section class="hero">
+            <div class="back-button-wrap reveal">
+                <a href="/" class="go-back-button">
+                    <span>Go back</span>
+                </a>
+            </div>
+
+            <h1 class="reveal">
+                Welcome to Stock Market Price Trend Prediction and Backtesting Strategy System.
+            </h1>
+
+            <p class="reveal">
+                Stock Market Price Trend Prediction and Backtesting Strategy System is a comprehensive,
+                AI driven platform engineered to deliver advanced stock market analytics, predictive
+                modelling, and portfolio intelligence for participants across the financial ecosystem.
+            </p>
+        </section>
+
+        <section class="features-section reveal">
+            <h2 class="section-title">System Features</h2>
+
+            <div class="features-grid">
+
+                <article class="feature-card reveal">
+                    <h2>Customer Features</h2>
+
+                    <ul>
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Register and create an account with email verification.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Portfolio Management: add, view, delete or modify stocks in holdings.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Search and view price chart, fundamental analysis of stocks along with historical
+                                prices.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>A screener tool that filters companies using queries with multiple parameters and
+                                conditions, displaying results in a table.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Make predictions of a stock based on the target date selected along with
+                                validation.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Add or view feedback and response from the admin.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>News section to view latest news along with AI summary of market sentiments.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>IPO tracker and Market trends section, updated daily except holidays.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>View broadcast message from the admin about the system changes or updates.</span>
+                        </li>
+                    </ul>
+                </article>
+
+                <article class="feature-card reveal">
+                    <h2>Financial Institution Features</h2>
+
+                    <ul>
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Register and create an account with email verification and admin approval.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Portfolio Management: add, view, delete or modify stocks in holdings.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Search and view price chart, fundamental analysis of stocks along with historical
+                                prices.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Equity research tool that retrieves specific financial insights from trusted web
+                                sources using natural-language queries.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>News section to view latest news along with AI summary of market sentiments.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>IPO tracker and Market trends section, updated daily except holidays.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>Add or view feedback and response from the admin.</span>
+                        </li>
+
+                        <li>
+                            <span class="tick">✔</span>
+                            <span>View broadcast message from the admin about the system changes or updates.</span>
+                        </li>
+                    </ul>
+                </article>
+
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const revealElements = document.querySelectorAll(".reveal");
+
+        const revealObserver = new IntersectionObserver(
+            entries => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add("show");
+                    } else {
+                        entry.target.classList.remove("show");
+                    }
+                });
+            },
+            {
+                threshold: 0.15,
+                rootMargin: "0px 0px -40px 0px"
+            }
+        );
+
+        revealElements.forEach(element => {
+            revealObserver.observe(element);
+        });
+    </script>
+{% endblock %}
