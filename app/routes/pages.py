@@ -20,6 +20,13 @@ def login_page(request: Request):
         {"request": request}
     )
 
+@router.get("/about")
+def login_page(request: Request):
+    return templates.TemplateResponse(
+        "about.html",
+        {"request": request}
+    )
+
 @router.get("/register")
 def register_choice(request: Request):
     return templates.TemplateResponse(
