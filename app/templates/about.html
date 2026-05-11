@@ -102,7 +102,6 @@
         }
 
         @keyframes glow {
-
             0%,
             100% {
                 box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
@@ -143,6 +142,75 @@
             gap: 32px;
             margin-top: 40px;
             width: 100%;
+        }
+
+        /*  Flip Card Wrapper  */
+        .flip-card-wrapper {
+            width: 100%;
+            /* perspective origin set on the wrapper so the 3-D scene is stable */
+            perspective: 1400px;
+            perspective-origin: center center;
+            cursor: pointer;
+        }
+
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            transform-style: preserve-3d;
+            /* default: no rotation */
+            transform: rotateY(0deg);
+            transition:
+                transform 0.65s cubic-bezier(0.4, 0.2, 0.2, 1);
+            /* Reserve height so the wrapper never collapses when the front card is rotated out of view. We'll set it dynamically via JS too. */
+        }
+
+        /* Hover nudge — right edge lifts toward viewer (negative Y rotation) */
+        .flip-card-wrapper:not(.flipped):hover .flip-card-inner {
+            transform: rotateY(-28deg);
+        }
+
+        /* Fully flipped state */
+        .flip-card-wrapper.flipped .flip-card-inner {
+            transform: rotateY(-180deg);
+        }
+
+        /* Faces  */
+        .flip-face {
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            width: 100%;
+        }
+
+        /* Front face sits in normal flow to define the wrapper height */
+        .flip-face--front {
+            position: relative;
+        }
+
+        /* Back face is absolutely positioned on top, pre-rotated 180° */
+        .flip-face--back {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            transform: rotateY(180deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #eff0f4;
+            border-radius: 28px;
+            box-shadow:
+                inset 12px 12px 18px rgba(0, 0, 0, 0.04),
+                18px 24px 22px rgba(0, 0, 0, 0.05),
+                inset -14px -14px 20px rgba(255, 255, 255, 0.85);
+            overflow: hidden;
+        }
+
+        .flip-face--back video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border-radius: 24px;
+            display: block;
         }
 
         .feature-card {
@@ -189,6 +257,23 @@
             margin-top: 1px;
         }
 
+        /* Click-hint label on back face  */
+        .back-label {
+            position: absolute;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.55);
+            color: #fff;
+            font-size: 0.78rem;
+            padding: 5px 14px;
+            border-radius: 20px;
+            letter-spacing: 0.04em;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        /* Reveal animation  */
         .reveal {
             opacity: 0;
             transform: translateY(45px);
@@ -260,107 +345,136 @@
 
             <div class="features-grid">
 
-                <article class="feature-card reveal">
-                    <h2>Customer Features</h2>
+                <!--  Customer Features Card  -->
+                <div class="flip-card-wrapper reveal" id="customerCard">
+                    <div class="flip-card-inner">
 
-                    <ul>
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Register and create an account with email verification.</span>
-                        </li>
+                        <!-- FRONT -->
+                        <div class="flip-face flip-face--front">
+                            <article class="feature-card">
+                                <h2>Customer Features</h2>
+                                <ul>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Register and create an account with email verification.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Portfolio Management: add, view, delete or modify stocks in holdings.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Search and view price chart, fundamental analysis of stocks along with historical
+                                            prices.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>A screener tool that filters companies using queries with multiple parameters and
+                                            conditions, displaying results in a table.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Make predictions of a stock based on the target date selected along with
+                                            validation.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Add or view feedback and response from the admin.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>News section to view latest news along with AI summary of market sentiments.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>IPO tracker and Market trends section, updated daily except holidays.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>View broadcast message from the admin about the system changes or updates.</span>
+                                    </li>
+                                </ul>
+                            </article>
+                        </div>
 
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Portfolio Management: add, view, delete or modify stocks in holdings.</span>
-                        </li>
+                        <!-- BACK -->
+                        <div class="flip-face flip-face--back">
+                            <video
+                                id="customerVideo"
+                                data-src="/static/media/customer.mp4"
+                                loop
+                                muted
+                                playsinline
+                                preload="none"
+                            ></video>
+                            <span class="back-label">Click to go back</span>
+                        </div>
 
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Search and view price chart, fundamental analysis of stocks along with historical
-                                prices.</span>
-                        </li>
+                    </div>
+                </div>
 
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>A screener tool that filters companies using queries with multiple parameters and
-                                conditions, displaying results in a table.</span>
-                        </li>
+                <!--  Financial Institution Features Card  -->
+                <div class="flip-card-wrapper reveal" id="finCard">
+                    <div class="flip-card-inner">
 
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Make predictions of a stock based on the target date selected along with
-                                validation.</span>
-                        </li>
+                        <!-- FRONT -->
+                        <div class="flip-face flip-face--front">
+                            <article class="feature-card">
+                                <h2>Financial Institution Features</h2>
+                                <ul>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Register and create an account with email verification and admin approval.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Portfolio Management: add, view, delete or modify stocks in holdings.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Search and view price chart, fundamental analysis of stocks along with historical
+                                            prices.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Equity research tool that retrieves specific financial insights from trusted web
+                                            sources using natural-language queries.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>News section to view latest news along with AI summary of market sentiments.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>IPO tracker and Market trends section, updated daily except holidays.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>Add or view feedback and response from the admin.</span>
+                                    </li>
+                                    <li>
+                                        <span class="tick">✔</span>
+                                        <span>View broadcast message from the admin about the system changes or updates.</span>
+                                    </li>
+                                </ul>
+                            </article>
+                        </div>
 
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Add or view feedback and response from the admin.</span>
-                        </li>
+                        <!-- BACK -->
+                        <div class="flip-face flip-face--back">
+                            <video
+                                id="finVideo"
+                                data-src="/static/media/fin.mp4"
+                                loop
+                                muted
+                                playsinline
+                                preload="none"
+                            ></video>
+                            <span class="back-label">Click to go back</span>
+                        </div>
 
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>News section to view latest news along with AI summary of market sentiments.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>IPO tracker and Market trends section, updated daily except holidays.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>View broadcast message from the admin about the system changes or updates.</span>
-                        </li>
-                    </ul>
-                </article>
-
-                <article class="feature-card reveal">
-                    <h2>Financial Institution Features</h2>
-
-                    <ul>
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Register and create an account with email verification and admin approval.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Portfolio Management: add, view, delete or modify stocks in holdings.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Search and view price chart, fundamental analysis of stocks along with historical
-                                prices.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Equity research tool that retrieves specific financial insights from trusted web
-                                sources using natural-language queries.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>News section to view latest news along with AI summary of market sentiments.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>IPO tracker and Market trends section, updated daily except holidays.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>Add or view feedback and response from the admin.</span>
-                        </li>
-
-                        <li>
-                            <span class="tick">✔</span>
-                            <span>View broadcast message from the admin about the system changes or updates.</span>
-                        </li>
-                    </ul>
-                </article>
+                    </div>
+                </div>
 
             </div>
         </section>
@@ -368,6 +482,7 @@
     </main>
 
     <script>
+        /*  Reveal on scroll  */
         const revealElements = document.querySelectorAll(".reveal");
 
         const revealObserver = new IntersectionObserver(
@@ -386,8 +501,50 @@
             }
         );
 
-        revealElements.forEach(element => {
-            revealObserver.observe(element);
-        });
+        revealElements.forEach(el => revealObserver.observe(el));
+
+        /*  Flip sound  */
+        // Pre-load once; reuse for every flip on either card
+        const flipAudio = new Audio("/static/media/flip.mp3");
+
+        function playFlipSound() {
+            // Rewind to start so rapid clicks always trigger the full sound
+            flipAudio.currentTime = 0;
+            flipAudio.play().catch(() => {
+                // Autoplay may be blocked until the user has interacted —
+                // that's fine; the click itself counts as interaction here.
+            });
+        }
+
+        /*  Flip card logic  */
+        /**
+         * Sets up flip behaviour for a card.
+         * @param {string} wrapperId  - id of .flip-card-wrapper
+         * @param {string} videoId    - id of the <video> on the back face
+         */
+        function setupFlipCard(wrapperId, videoId) {
+            const wrapper = document.getElementById(wrapperId);
+            const video   = document.getElementById(videoId);
+
+            wrapper.addEventListener("click", () => {
+                playFlipSound();
+                const isFlipped = wrapper.classList.toggle("flipped");
+
+                if (isFlipped) {
+                    // Lazy-load: set src only on first flip, then let browser cache it
+                    if (!video.src) {
+                        video.src = video.dataset.src;
+                    }
+                    video.currentTime = 0;
+                    video.play().catch(() => {});
+                } else {
+                    video.pause();
+                    video.currentTime = 0;
+                }
+            });
+        }
+
+        setupFlipCard("customerCard", "customerVideo");
+        setupFlipCard("finCard",      "finVideo");
     </script>
 {% endblock %}
