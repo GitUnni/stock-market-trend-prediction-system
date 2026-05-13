@@ -864,6 +864,7 @@
         cursor: pointer;
         transition: all 0.2s;
         border-radius: 8px;
+        border-left: 5px solid #294263;
     }
     .holding-item:last-child { border-bottom: none; }
     .holding-item:hover {
@@ -4151,6 +4152,15 @@
         if (str === null || str === undefined) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+
+    // Re-check auth when page is restored from the browser's back-forward cache (bfcache).
+    // Pressing the back button after logout thaws the frozen page without firing DOMContentLoaded,
+    // so checkAuth() above never runs — this listener catches that case.
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) {
+            checkAuth();
+        }
+    });
 </script>
 
 <!-- Load Logout Animation Script -->
