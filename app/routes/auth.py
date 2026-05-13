@@ -12,14 +12,79 @@ from app.deps import get_db
 import os
 from jose import jwt, JWTError
 from typing import Optional
+import json
+from upstash_redis import Redis
 from dotenv import load_dotenv
 
 load_dotenv("app/.env")
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-# Store verification codes temporarily (in production, use Redis or database)
+# Redis-backed verification code storage (Upstash REST) with in-memory fallback for local dev
 verification_codes = {}
+password_reset_codes = {}
+
+VERIFICATION_CODE_TTL_SECONDS = int(os.getenv("VERIFICATION_CODE_TTL_SECONDS", "600"))
+MAX_VERIFICATION_ATTEMPTS = int(os.getenv("MAX_VERIFICATION_ATTEMPTS", "5"))
+
+redis_url = os.getenv("UPSTASH_REDIS_REST_URL")
+redis_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+redis_client: Optional[Redis] = None
+if redis_url and redis_token:
+    redis_client = Redis(url=redis_url, token=redis_token)
+
+
+def _verification_key(email: str, purpose: str) -> str:
+    return f"{purpose}:{email.lower()}"
+
+
+def _store_code(email: str, code: str, purpose: str):
+    payload = json.dumps({"code": code, "attempts": 0})
+    if redis_client:
+        redis_client.setex(_verification_key(email, purpose), VERIFICATION_CODE_TTL_SECONDS, payload)
+    else:
+        if purpose == "email_verification":
+            verification_codes[email] = {"code": code, "attempts": 0}
+        else:
+            password_reset_codes[email] = {"code": code, "attempts": 0}
+
+
+def _get_code_data(email: str, purpose: str):
+    if redis_client:
+        payload = redis_client.get(_verification_key(email, purpose))
+        if not payload:
+            return None
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+        return json.loads(payload)
+
+    if purpose == "email_verification":
+        return verification_codes.get(email)
+    return password_reset_codes.get(email)
+
+
+def _delete_code(email: str, purpose: str):
+    if redis_client:
+        redis_client.delete(_verification_key(email, purpose))
+        return
+
+    if purpose == "email_verification":
+        verification_codes.pop(email, None)
+    else:
+        password_reset_codes.pop(email, None)
+
+
+def _update_code_data(email: str, data: dict, purpose: str):
+    if redis_client:
+        ttl_remaining = redis_client.ttl(_verification_key(email, purpose))
+        ttl = ttl_remaining if isinstance(ttl_remaining, int) and ttl_remaining > 0 else VERIFICATION_CODE_TTL_SECONDS
+        redis_client.setex(_verification_key(email, purpose), ttl, json.dumps(data))
+        return
+
+    if purpose == "email_verification":
+        verification_codes[email] = data
+    else:
+        password_reset_codes[email] = data
 
 # -- Auth dependency for admin endpoints --
 _bearer = HTTPBearer(auto_error=False)
@@ -182,8 +247,7 @@ def request_verification_code(email: str, db: Session = Depends(get_db)):
     # Generate verification code
     code = generate_verification_code()
     
-    # Store the code (in production, use Redis with expiration)
-    verification_codes[email] = code
+    _store_code(email, code, "email_verification")
     
     # Send email
     email_sent = send_verification_email(email, code)
@@ -207,14 +271,25 @@ def verify_email(email: str, code: str, db: Session = Depends(get_db)):
     if user.is_email_verified:
         raise HTTPException(status_code=400, detail="Email already verified")
     
-    # Check if code exists and matches
-    stored_code = verification_codes.get(email)
-    
-    if not stored_code:
-        raise HTTPException(status_code=400, detail="No verification code found. Please request a new one.")
-    
-    if stored_code != code:
-        raise HTTPException(status_code=400, detail="Invalid verification code")
+    stored_data = _get_code_data(email, "email_verification")
+
+    if not stored_data:
+        raise HTTPException(status_code=400, detail="No verification code found or it has expired. Please request a new one.")
+
+    if stored_data.get("attempts", 0) >= MAX_VERIFICATION_ATTEMPTS:
+        _delete_code(email, "email_verification")
+        raise HTTPException(status_code=429, detail="Too many attempts. Please request a new verification code.")
+
+    if stored_data.get("code") != code:
+        stored_data["attempts"] = stored_data.get("attempts", 0) + 1
+        _update_code_data(email, stored_data, "email_verification")
+
+        if stored_data["attempts"] >= MAX_VERIFICATION_ATTEMPTS:
+            _delete_code(email, "email_verification")
+            raise HTTPException(status_code=429, detail="Too many attempts. Please request a new verification code.")
+
+        remaining_attempts = MAX_VERIFICATION_ATTEMPTS - stored_data["attempts"]
+        raise HTTPException(status_code=400, detail=f"Invalid verification code. {remaining_attempts} attempt(s) remaining.")
     
     # Update user's email verification status
     user.is_email_verified = True
@@ -230,7 +305,7 @@ def verify_email(email: str, code: str, db: Session = Depends(get_db)):
     db.commit()
     
     # Remove the used code
-    verification_codes.pop(email, None)
+    _delete_code(email, "email_verification")
     
     # Generate new token with updated email_verified status
     token = create_access_token(
@@ -369,48 +444,45 @@ def delete_user(
 
 
 # Forgot Password Endpoints
-# Store password reset codes temporarily (in production, use Redis or database)
-password_reset_codes = {}
 
 
 @router.post("/request-password-reset")
 def request_password_reset(email: str, db: Session = Depends(get_db)):
     """Request a password reset code"""
     user = db.query(models.User).filter(models.User.email == email).first()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="Email not registered")
-    
+
     # Generate reset code
     code = generate_verification_code()
-    
-    # Store the code (in production, use Redis with expiration)
-    password_reset_codes[email] = code
-    
+
+    _store_code(email, code, "password_reset")
+
     # Send email
     subject = "Password Reset Code - Stock Market System"
     body = f"""
     Hello {user.name},
-    
+
     Your password reset code is: {code}
-    
+
     Please enter this code to reset your password.
     This code will expire in 10 minutes.
-    
+
     If you did not request this code, please ignore this email and your password will remain unchanged.
-    
+
     Best regards,
     Stock Market Trading System Team
     """
-    
+
     try:
         email_sent = send_verification_email(email, code)
-        
+
         if not email_sent:
             # For development, return the code
             print(f"Password reset code for {email}: {code}")
             return {"message": "Reset code generated (check console in development)", "dev_code": code}
-        
+
         return {"message": "Password reset code sent to your email"}
     except Exception as e:
         # For development, return the code
@@ -422,19 +494,30 @@ def request_password_reset(email: str, db: Session = Depends(get_db)):
 def verify_reset_code(email: str, code: str, db: Session = Depends(get_db)):
     """Verify the password reset code"""
     user = db.query(models.User).filter(models.User.email == email).first()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Check if code exists and matches
-    stored_code = password_reset_codes.get(email)
-    
-    if not stored_code:
-        raise HTTPException(status_code=400, detail="No reset code found. Please request a new one.")
-    
-    if stored_code != code:
-        raise HTTPException(status_code=400, detail="Invalid reset code")
-    
+
+    stored_data = _get_code_data(email, "password_reset")
+
+    if not stored_data:
+        raise HTTPException(status_code=400, detail="No reset code found or it has expired. Please request a new one.")
+
+    if stored_data.get("attempts", 0) >= MAX_VERIFICATION_ATTEMPTS:
+        _delete_code(email, "password_reset")
+        raise HTTPException(status_code=429, detail="Too many attempts. Please request a new reset code.")
+
+    if stored_data.get("code") != code:
+        stored_data["attempts"] = stored_data.get("attempts", 0) + 1
+        _update_code_data(email, stored_data, "password_reset")
+
+        if stored_data["attempts"] >= MAX_VERIFICATION_ATTEMPTS:
+            _delete_code(email, "password_reset")
+            raise HTTPException(status_code=429, detail="Too many attempts. Please request a new reset code.")
+
+        remaining_attempts = MAX_VERIFICATION_ATTEMPTS - stored_data["attempts"]
+        raise HTTPException(status_code=400, detail=f"Invalid reset code. {remaining_attempts} attempt(s) remaining.")
+
     return {"message": "Code verified successfully"}
 
 
@@ -445,21 +528,21 @@ def reset_password(
 ):
     """Reset password with verified code"""
     user = db.query(models.User).filter(models.User.email == reset_data.email).first()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Verify code one more time
-    stored_code = password_reset_codes.get(reset_data.email)
-    
-    if not stored_code or stored_code != reset_data.code:
+    stored_data = _get_code_data(reset_data.email, "password_reset")
+
+    if not stored_data or stored_data.get("code") != reset_data.code:
         raise HTTPException(status_code=400, detail="Invalid or expired reset code")
-    
+
     # Update password
     user.hashed_password = hash_password(reset_data.new_password)
     db.commit()
-    
+
     # Remove the used code
-    password_reset_codes.pop(reset_data.email, None)
-    
+    _delete_code(reset_data.email, "password_reset")
+
     return {"message": "Password reset successfully"}
