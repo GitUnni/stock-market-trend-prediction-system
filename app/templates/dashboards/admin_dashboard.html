@@ -1691,6 +1691,15 @@
             setInterval(loadPendingInstitutions, 60000);
         }
     });
+
+    // Re-check auth when page is restored from the browser's back-forward cache (bfcache).
+    // Pressing the back button after logout thaws the frozen page without firing DOMContentLoaded,
+    // so checkAuth() above never runs — this listener catches that case.
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) {
+            checkAuth();
+        }
+    });
 </script>
 
 <!-- Load Logout Animation Script -->
