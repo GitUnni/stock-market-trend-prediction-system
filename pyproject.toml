@@ -31,6 +31,7 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "sqlalchemy>=2.0.46",
     "torch>=2.10.0",
+    "upstash-redis>=1.7.0",
     "uvicorn[standard]>=0.40.0",
     "xgboost>=3.2.0",
     "yfinance>=1.1.0",
