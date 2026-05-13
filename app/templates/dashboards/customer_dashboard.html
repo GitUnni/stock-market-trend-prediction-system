@@ -1183,6 +1183,7 @@
         cursor: pointer;
         transition: all 0.2s;
         border-radius: 8px;
+        border-left: 5px solid #294263;
     }
 
     .holding-item:last-child {
@@ -5187,6 +5188,15 @@
     window.addEventListener('DOMContentLoaded', () => {
         checkAuth();
         updateContent('portfolio');   // Load Portfolio by default
+    });
+
+    // Re-check auth when page is restored from the browser's back-forward cache (bfcache).
+    // Pressing the back button after logout thaws the frozen page without firing DOMContentLoaded,
+    // so checkAuth() above never runs — this listener catches that case.
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) {
+            checkAuth();
+        }
     });
 </script>
 
