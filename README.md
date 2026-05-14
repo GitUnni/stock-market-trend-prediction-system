@@ -72,15 +72,18 @@ The platform supports three distinct user roles: **Customer**, **Financial Insti
 |---|---|
 | **Backend** | FastAPI, Uvicorn |
 | **Frontend** | HTML, CSS, JavaScript, Jinja2 Templates |
-| **Database** | SQLAlchemy (SQLite for local development) |
-| **Authentication** | Passlib (bcrypt), Python-JOSE (JWT), Gmail SMTP |
+| **Database / ORM** | SQLAlchemy, PostgreSQL via `psycopg` (production-ready), SQLite (local development) |
+| **Database Migrations** | Alembic |
+| **Caching / Ephemeral State** | Upstash Redis (`upstash-redis`) for verification/reset code storage with TTL |
+| **Authentication & Security** | Passlib + bcrypt password hashing, Python-JOSE (JWT), HTTP Bearer auth, Gmail SMTP for OTP/verification emails |
 | **ML Models** | Prophet, XGBoost, PyTorch (LSTM), Scikit-learn |
 | **Data** | yfinance, pandas, pandas-market-calendars |
 | **Visualisation** | Plotly |
-| **AI / LLM** | LangChain, LangChain-Groq, LangGraph |
+| **AI / LLM Orchestration** | LangChain, LangChain-Community, LangChain-Groq, LangGraph |
 | **News API** | MarketAux |
-| **Research** | Groq API, Tavily API, DuckDuckGo Search |
-| **Utilities** | Python-dotenv, BeautifulSoup4, lxml, Requests |
+| **Research** | Groq API, Tavily API, DuckDuckGo Search (`duckduckgo-search`, `ddgs`), `curl-cffi` |
+| **Validation & Config** | Pydantic schemas (FastAPI), python-dotenv, email-validator |
+| **Utilities** | BeautifulSoup4, lxml, Requests |
 | **Package Manager** | uv |
 | **Python Version** | 3.12 |
 
@@ -226,6 +229,18 @@ sender_password=your_key
 
 # Secret key — used in auth.py for JWT token signing and session security
 SECRET_KEY=your_key
+
+# Upstash Redis REST URL — used in routes/auth.py for distributed verification/reset code storage
+UPSTASH_REDIS_REST_URL=your_upstash_redis_rest_url
+
+# Upstash Redis REST token — used in routes/auth.py to authenticate REST calls to Upstash
+UPSTASH_REDIS_REST_TOKEN=your_upstash_redis_rest_token
+
+# Verification/reset code TTL (in seconds) — optional; default is 600 (10 minutes)
+VERIFICATION_CODE_TTL_SECONDS=600
+
+# Maximum verification/reset attempts before lockout — optional; default is 5
+MAX_VERIFICATION_ATTEMPTS=5
 ```
 
 > ⚠️ **Important:** Never commit your `.env` file to version control. It is already listed in `.gitignore` to prevent accidental exposure.
@@ -239,7 +254,11 @@ SECRET_KEY=your_key
 | `MARKETAUX_API_KEY` | [https://www.marketaux.com](https://www.marketaux.com) — Free tier available (daily refresh) |
 | `sender_email` | Your Gmail address used to send system emails |
 | `sender_password` | Gmail App Password (not your regular password) — Generate at [Google Account → Security → App Passwords](https://myaccount.google.com/apppasswords) |
-| `SECRET_KEY` | Any long random string — generate with: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `SECRET_KEY` | Generate a random strong string locally (example: `python -c "import secrets; print(secrets.token_urlsafe(32))"`) |
+| `UPSTASH_REDIS_REST_URL` | [https://console.upstash.com](https://console.upstash.com) → Redis DB → REST API section |
+| `UPSTASH_REDIS_REST_TOKEN` | [https://console.upstash.com](https://console.upstash.com) → Redis DB → REST API section |
+| `VERIFICATION_CODE_TTL_SECONDS` | Local config value (optional). Keep default `600` unless you need a different expiry window |
+| `MAX_VERIFICATION_ATTEMPTS` | Local config value (optional). Keep default `5` unless you need stricter/looser lockout |
 
 ---
 
@@ -280,12 +299,31 @@ A pre-configured admin (manualadd.py) account manages user oversight, approves o
 
 ## API Keys Guide
 
+This section explains how to generate each credential used by the project and where it maps in `app/.env`.
+
+### Upstash Redis (Email Verification / Password Reset Code Storage)
+1. Sign in at [console.upstash.com](https://console.upstash.com)
+2. Create a **Redis** database in the region closest to your deployment
+3. Open the database → **REST API** section
+4. Copy:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+5. Add them to `app/.env`
+
 ### Gmail App Password Setup
 1. Go to your [Google Account](https://myaccount.google.com/)
 2. Navigate to **Security** → **2-Step Verification** (must be enabled)
 3. At the bottom, click **App Passwords**
 4. Select **Mail** and your device, then click **Generate**
 5. Use the 16-character password as `sender_password` in your `.env`
+
+### JWT Secret Key (`SECRET_KEY`)
+- Add a random string or generate a secure random key locally by typing the below command in terminal:
+  ```bash
+  python -c "import secrets; print(secrets.token_urlsafe(32))"
+  ```
+- Paste it as `SECRET_KEY` in `app/.env`
+- Keep this value private and rotate it if exposed
 
 ### Groq API (LLM for Equity Research)
 - Sign up at [console.groq.com](https://console.groq.com)
@@ -301,6 +339,11 @@ A pre-configured admin (manualadd.py) account manages user oversight, approves o
 - Sign up at [marketaux.com](https://www.marketaux.com)
 - Get your API key from the dashboard
 - Free tier refreshes daily
+
+### Optional Security Tuning Vars (No external provider required)
+- `VERIFICATION_CODE_TTL_SECONDS`: default `600` (10 minutes)
+- `MAX_VERIFICATION_ATTEMPTS`: default `5`
+- Set these in `app/.env` only if you want behavior different from defaults
 
 ---
 
