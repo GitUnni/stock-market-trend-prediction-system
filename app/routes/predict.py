@@ -39,9 +39,12 @@ warnings.filterwarnings("ignore")
 import logging
 import threading
 import uuid
+import os
+import json
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from upstash_redis import Redis
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -55,13 +58,41 @@ router = APIRouter(prefix="/api/predict", tags=["Prediction"])
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
-# In-memory job store  (per-process; resets on server restart)
-# Keys: job_id (str) → dict with status, progress, result, error
+# Redis-backed job store
 # ─────────────────────────────────────────────────────────────────────
-_JOB_STORE: dict = {}
+redis_url = os.getenv("UPSTASH_REDIS_REST_URL")
+redis_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+redis_client: Optional[Redis] = None
+if redis_url and redis_token:
+    redis_client = Redis(url=redis_url, token=redis_token)
+
 _JOB_LOCK = threading.Lock()
 
-MAX_STORED_JOBS = 200   # evict oldest when exceeded
+MAX_STORED_JOBS = 200   # retained for backward compatibility
+JOB_TTL_SECONDS = int(os.getenv("PREDICTION_JOB_TTL_SECONDS", "7200"))
+
+def _require_job_store():
+    if redis_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Prediction jobs require Redis. Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+        )
+
+def _job_key(job_id: str) -> str:
+    return f"predict_job:{job_id}"
+
+def _load_job(job_id: str) -> Optional[dict]:
+    _require_job_store()
+    payload = redis_client.get(_job_key(job_id))
+    if not payload:
+        return None
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8")
+    return json.loads(payload)
+
+def _save_job(job_id: str, job_data: dict):
+    _require_job_store()
+    redis_client.setex(_job_key(job_id), JOB_TTL_SECONDS, json.dumps(job_data))
 
 def _new_job(job_id: str, symbol: str, target_date: str) -> dict:
     return {
@@ -79,17 +110,14 @@ def _new_job(job_id: str, symbol: str, target_date: str) -> dict:
 
 def _update_job(job_id: str, **kwargs):
     with _JOB_LOCK:
-        if job_id in _JOB_STORE:
-            _JOB_STORE[job_id].update(kwargs)
+        job = _load_job(job_id)
+        if job is not None:
+            job.update(kwargs)
+            _save_job(job_id, job)
 
 def _evict_old_jobs():
-    """Keep only the 200 most-recent jobs."""
-    with _JOB_LOCK:
-        if len(_JOB_STORE) > MAX_STORED_JOBS:
-            oldest = sorted(_JOB_STORE.keys(),
-                            key=lambda k: _JOB_STORE[k]["created_at"])
-            for k in oldest[:len(_JOB_STORE) - MAX_STORED_JOBS]:
-                del _JOB_STORE[k]
+    """No-op when using TTL-based Redis eviction."""
+    return
 
 # ─────────────────────────────────────────────────────────────────────
 # Constants  (mirror notebook Cell 3)
@@ -829,7 +857,8 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
 
     def cancelled() -> bool:
         with _JOB_LOCK:
-            return _JOB_STORE.get(job_id, {}).get("_cancel", False)
+            job = _load_job(job_id)
+            return bool(job and job.get("_cancel", False))
 
     for lg in ["prophet","cmdstanpy","numexpr","h5py","absl","tensorflow"]:
         logging.getLogger(lg).setLevel(logging.ERROR)
@@ -1129,10 +1158,11 @@ async def start_prediction(
         raise HTTPException(400, "Target date must be within 365 days from today.")
 
     yahoo_symbol = resolve_yahoo_symbol(symbol, db)
+    _require_job_store()
 
     job_id = str(uuid.uuid4())
     with _JOB_LOCK:
-        _JOB_STORE[job_id] = _new_job(job_id, symbol.upper(), target_date)
+        _save_job(job_id, _new_job(job_id, symbol.upper(), target_date))
     _evict_old_jobs()
 
     thread = threading.Thread(
@@ -1162,7 +1192,7 @@ async def get_prediction_status(job_id: str):
       "error"   — error message is populated
     """
     with _JOB_LOCK:
-        job = _JOB_STORE.get(job_id)
+        job = _load_job(job_id)
     if job is None:
         raise HTTPException(404, f"Job '{job_id}' not found. "
                             "Jobs are cleared on server restart.")
@@ -1182,7 +1212,7 @@ async def get_prediction_status(job_id: str):
 async def cancel_prediction(job_id: str):
     """Request cancellation of a running prediction job."""
     with _JOB_LOCK:
-        job = _JOB_STORE.get(job_id)
+        job = _load_job(job_id)
     if job is None:
         raise HTTPException(404, f"Job '{job_id}' not found.")
     if job["status"] in ("done", "error"):
