@@ -34,6 +34,14 @@ if redis_url and redis_token:
     redis_client = Redis(url=redis_url, token=redis_token)
 
 
+def _require_redis_for_codes():
+    if redis_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Verification/reset code storage requires Redis in this environment.",
+        )
+
+
 def _verification_key(email: str, purpose: str) -> str:
     return f"{purpose}:{email.lower()}"
 
@@ -43,10 +51,7 @@ def _store_code(email: str, code: str, purpose: str):
     if redis_client:
         redis_client.setex(_verification_key(email, purpose), VERIFICATION_CODE_TTL_SECONDS, payload)
     else:
-        if purpose == "email_verification":
-            verification_codes[email] = {"code": code, "attempts": 0}
-        else:
-            password_reset_codes[email] = {"code": code, "attempts": 0}
+        _require_redis_for_codes()
 
 
 def _get_code_data(email: str, purpose: str):
@@ -58,9 +63,8 @@ def _get_code_data(email: str, purpose: str):
             payload = payload.decode("utf-8")
         return json.loads(payload)
 
-    if purpose == "email_verification":
-        return verification_codes.get(email)
-    return password_reset_codes.get(email)
+    _require_redis_for_codes()
+    return None
 
 
 def _delete_code(email: str, purpose: str):
@@ -68,10 +72,7 @@ def _delete_code(email: str, purpose: str):
         redis_client.delete(_verification_key(email, purpose))
         return
 
-    if purpose == "email_verification":
-        verification_codes.pop(email, None)
-    else:
-        password_reset_codes.pop(email, None)
+    _require_redis_for_codes()
 
 
 def _update_code_data(email: str, data: dict, purpose: str):
@@ -81,10 +82,7 @@ def _update_code_data(email: str, data: dict, purpose: str):
         redis_client.setex(_verification_key(email, purpose), ttl, json.dumps(data))
         return
 
-    if purpose == "email_verification":
-        verification_codes[email] = data
-    else:
-        password_reset_codes[email] = data
+    _require_redis_for_codes()
 
 # -- Auth dependency for admin endpoints --
 _bearer = HTTPBearer(auto_error=False)
@@ -253,9 +251,7 @@ def request_verification_code(email: str, db: Session = Depends(get_db)):
     email_sent = send_verification_email(email, code)
     
     if not email_sent:
-        # For development, print the code to console
-        print(f"Verification code for {email}: {code}")
-        return {"message": "Verification code generated (check console in development)", "dev_code": code}
+        raise HTTPException(status_code=502, detail="Unable to send verification email at the moment. Please try again.")
     
     return {"message": "Verification code sent to your email"}
 
