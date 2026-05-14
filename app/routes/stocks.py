@@ -10,6 +10,7 @@ import logging
 
 from app.deps import get_db
 from app import models
+from app.routes.auth import require_admin
 
 router = APIRouter(prefix="/api/stocks", tags=["Stocks"])
 
@@ -112,7 +113,8 @@ FALLBACK_STOCKS = {
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, ge=1, le=50, description="Maximum number of results"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
 ):
     """
     Search for stocks by name or symbol
@@ -173,7 +175,8 @@ async def search_stocks(
 @router.post("/sync-nse")
 async def sync_nse_stocks(
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
 ):
     """
     Sync NSE stock list from NSE website
