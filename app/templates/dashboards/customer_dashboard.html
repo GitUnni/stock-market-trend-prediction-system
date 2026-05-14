@@ -5266,6 +5266,21 @@ async function submitPrediction() {
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || 'Failed to start prediction');
         _currentJobId = data.job_id;
+
+        // Cache hit — result is ready, render immediately without polling
+        if (data.status === 'done' && data.cached) {
+            const statusResp = await fetch(`/api/predict/status/${_currentJobId}`);
+            const statusData = await statusResp.json();
+            if (statusData.result) {
+                renderPredictionResults(statusData.result);
+                showToast('success', 'Cached Result', '⚡ Served instantly from cache.');
+            } else {
+                throw new Error('Cached job had no result.');
+            }
+            return;
+        }
+
+        // Cache miss — poll until the pipeline finishes
         _startPolling(_currentJobId);
     } catch (err) {
         console.error('[PREDICT] start error:', err);
