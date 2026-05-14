@@ -2,9 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import resend
 
 from app import models, schemas
 from app.auth import hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM
@@ -116,46 +114,70 @@ def generate_verification_code():
     return str(secrets.randbelow(900000) + 100000)
 
 
-def send_verification_email(email: str, code: str):
-    """Send verification email with code"""
-    # Email configuration - update these with your SMTP settings
-    SMTP_SERVER = "smtp.gmail.com"  # Change to your SMTP server
-    SMTP_PORT = 587
-    SENDER_EMAIL = os.getenv("sender_email") # Email Address which sends the code
-    SENDER_PASSWORD = os.getenv("sender_password")  # My Pass Password (Google)
-    
-    subject = "Email Verification Code - Stock Market System"
-    body = f"""
-    Hello,
-    
-    Your verification code is: {code}
-    
-    Please enter this code to verify your email address.
-    This code will expire in 10 minutes.
-    
-    If you did not request this code, please ignore this email.
-    
-    Best regards,
-    Stock Market Trading System Team
+def _send_email(to_email: str, subject: str, body: str) -> bool:
     """
-    
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-        
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        return True
-    except Exception as e:
-        print(f"Error sending email: {e}")
+    Send an email via the Resend HTTP API (no SMTP — works on Render free tier).
+
+    Required env vars:
+        RESEND_API_KEY   — from https://resend.com (free, no credit card)
+        SENDER_EMAIL     — e.g. "Stock Market System <noreply@yourdomain.com>"
+                           Must be a domain you have verified in Resend.
+    """
+    resend.api_key = os.getenv("RESEND_API_KEY")
+    sender = os.getenv("SENDER_EMAIL")
+
+    if not resend.api_key or not sender:
+        print("RESEND_API_KEY or SENDER_EMAIL env var is missing.")
         return False
+
+    try:
+        response = resend.Emails.send({
+            "from": sender,
+            "to": [to_email],
+            "subject": subject,
+            "text": body,
+        })
+        # Resend returns an object with an `id` field on success
+        return bool(getattr(response, "id", None) or (isinstance(response, dict) and response.get("id")))
+    except Exception as e:
+        print(f"Error sending email via Resend: {e}")
+        return False
+
+
+def send_verification_email(email: str, code: str) -> bool:
+    """Send email-verification OTP."""
+    subject = "Email Verification Code - Stock Market System"
+    body = f"""Hello,
+
+Your verification code is: {code}
+
+Please enter this code to verify your email address.
+This code will expire in 10 minutes.
+
+If you did not request this code, please ignore this email.
+
+Best regards,
+Stock Market Trading System Team
+"""
+    return _send_email(email, subject, body)
+
+
+def send_password_reset_email(email: str, name: str, code: str) -> bool:
+    """Send password-reset OTP."""
+    subject = "Password Reset Code - Stock Market System"
+    body = f"""Hello {name},
+
+Your password reset code is: {code}
+
+Please enter this code to reset your password.
+This code will expire in 10 minutes.
+
+If you did not request this code, please ignore this email and your password will remain unchanged.
+
+Best regards,
+Stock Market Trading System Team
+"""
+    return _send_email(email, subject, body)
 
 
 @router.post("/register/customer")
@@ -455,35 +477,13 @@ def request_password_reset(email: str, db: Session = Depends(get_db)):
 
     _store_code(email, code, "password_reset")
 
-    # Send email
-    subject = "Password Reset Code - Stock Market System"
-    body = f"""
-    Hello {user.name},
+    # Send email via Resend HTTP API
+    email_sent = send_password_reset_email(email, user.name, code)
 
-    Your password reset code is: {code}
+    if not email_sent:
+        raise HTTPException(status_code=502, detail="Unable to send reset email at the moment. Please try again.")
 
-    Please enter this code to reset your password.
-    This code will expire in 10 minutes.
-
-    If you did not request this code, please ignore this email and your password will remain unchanged.
-
-    Best regards,
-    Stock Market Trading System Team
-    """
-
-    try:
-        email_sent = send_verification_email(email, code)
-
-        if not email_sent:
-            # For development, return the code
-            print(f"Password reset code for {email}: {code}")
-            return {"message": "Reset code generated (check console in development)", "dev_code": code}
-
-        return {"message": "Password reset code sent to your email"}
-    except Exception as e:
-        # For development, return the code
-        print(f"Password reset code for {email}: {code}")
-        return {"message": "Reset code generated (check console in development)", "dev_code": code}
+    return {"message": "Password reset code sent to your email"}
 
 
 @router.post("/verify-reset-code")
