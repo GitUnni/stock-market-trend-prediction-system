@@ -113,7 +113,6 @@ stock-market-trend-prediction-system/
 │   ├── routes/
 │   │   └── __init__.py
 │   │   ├── auth.py           # Auth routes (login, register, email verification)
-│   │   ├── admin.py          # Admin routes
 │   │   ├── broadcasts.py
 │   │   ├── feedback.py
 │   │   ├── miscellaneous.py
