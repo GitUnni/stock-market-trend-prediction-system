@@ -75,7 +75,7 @@ The platform supports three distinct user roles: **Customer**, **Financial Insti
 | **Database / ORM** | SQLAlchemy, PostgreSQL via `psycopg` (production-ready), SQLite (local development) |
 | **Database Migrations** | Alembic |
 | **Caching / Ephemeral State** | Upstash Redis (`upstash-redis`) for verification/reset code storage with TTL |
-| **Authentication & Security** | Passlib + bcrypt password hashing, Python-JOSE (JWT), HTTP Bearer auth, Gmail SMTP for OTP/verification emails |
+| **Authentication & Security** | Passlib + bcrypt password hashing, Python-JOSE (JWT), HTTP Bearer auth, Resend email API for OTP/verification emails |
 | **ML Models** | Prophet, XGBoost, PyTorch (LSTM), Scikit-learn |
 | **Data** | yfinance, pandas, pandas-market-calendars |
 | **Visualisation** | Plotly |
@@ -210,7 +210,7 @@ Then populate it with your keys (see [Environment Variables](#environment-variab
 
 ## Environment Variables
 
-Create a file at `app/.env` with the following contents. Replace each `your_key` / `your_gmail` with your actual credentials without any space and `""`:
+Create a file at `app/.env` with the following contents. Replace placeholder values with your real credentials:
 
 ```env
 # Groq API key — used in research.py for AI-powered Equity Research Tool
@@ -222,17 +222,20 @@ TAVILY_API_KEY=your_key
 # MarketAux API key — used in news.py for fetching Indian & Global market news (daily refresh)
 MARKETAUX_API_KEY=your_key
 
-# Gmail credentials — used in routes/auth.py for sending verification/notification emails
-sender_email=your_gmail
-sender_password=your_key
+# Resend API key — used in routes/auth.py for sending verification/notification emails
+SENDER_EMAIL=your_domain
+RESEND_API_KEY=your_key
 
 # Secret key — used in auth.py for JWT token signing and session security
 SECRET_KEY=your_key
 
+# Neon Postgres key — used in database.py as primary database
+DATABASE_URL=your_key
+
 # Upstash Redis REST URL — used in routes/auth.py for distributed verification/reset code storage
 UPSTASH_REDIS_REST_URL=your_upstash_redis_rest_url
 
-# Upstash Redis REST token — used in routes/auth.py to authenticate REST calls to Upstash
+# Upstash Redis REST token — used in routes/auth.py and routes/predict.py
 UPSTASH_REDIS_REST_TOKEN=your_upstash_redis_rest_token
 
 # Verification/reset code TTL (in seconds) — optional; default is 600 (10 minutes)
@@ -248,16 +251,19 @@ MAX_VERIFICATION_ATTEMPTS=5
 
 | Key | Source |
 |---|---|
-| `GROQ_API_KEY` | [https://console.groq.com](https://console.groq.com) — Free tier available |
-| `TAVILY_API_KEY` | [https://app.tavily.com](https://app.tavily.com) — Free tier available (monthly refresh) |
-| `MARKETAUX_API_KEY` | [https://www.marketaux.com](https://www.marketaux.com) — Free tier available (daily refresh) |
-| `sender_email` | Your Gmail address used to send system emails |
-| `sender_password` | Gmail App Password (not your regular password) — Generate at [Google Account → Security → App Passwords](https://myaccount.google.com/apppasswords) |
-| `SECRET_KEY` | Generate a random strong string locally (example: `python -c "import secrets; print(secrets.token_urlsafe(32))"`) |
-| `UPSTASH_REDIS_REST_URL` | [https://console.upstash.com](https://console.upstash.com) → Redis DB → REST API section |
-| `UPSTASH_REDIS_REST_TOKEN` | [https://console.upstash.com](https://console.upstash.com) → Redis DB → REST API section |
-| `VERIFICATION_CODE_TTL_SECONDS` | Local config value (optional). Keep default `600` unless you need a different expiry window |
-| `MAX_VERIFICATION_ATTEMPTS` | Local config value (optional). Keep default `5` unless you need stricter/looser lockout |
+| `GROQ_API_KEY` | [https://console.groq.com](https://console.groq.com) |
+| `TAVILY_API_KEY` | [https://app.tavily.com](https://app.tavily.com) |
+| `MARKETAUX_API_KEY` | [https://www.marketaux.com](https://www.marketaux.com) |
+| `SENDER_EMAIL` | A verified sender/domain in [https://resend.com](https://resend.com) |
+| `RESEND_API_KEY` | [https://resend.com/api-keys](https://resend.com/api-keys) |
+| `SECRET_KEY` | Generate locally: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `DATABASE_URL` | Managed Postgres provider (e.g., Neon) |
+| `UPSTASH_REDIS_REST_URL` | [https://console.upstash.com](https://console.upstash.com) → Redis → REST API |
+| `UPSTASH_REDIS_REST_TOKEN` | [https://console.upstash.com](https://console.upstash.com) → Redis → REST API |
+| `VERIFICATION_CODE_TTL_SECONDS` | Optional local override |
+| `MAX_VERIFICATION_ATTEMPTS` | Optional local override |
+| `PREDICTION_JOB_TTL_SECONDS` | Optional local override |
+| `PREDICTION_CACHE_TTL_SECONDS` | Optional local override |
 
 ---
 
@@ -276,7 +282,7 @@ The application will start at: **[http://localhost:8000](http://localhost:8000)*
 
 ---
 
-Individual scripts to run for populating the database after running 
+Individual scripts to run for populating the database after running (Useful one-off/cron scripts)
 ```bash      
 uv run python -m app.sync_stocks		#Scraping NSE's stock data into stock_info table daily update
 uv run python -m app.manualadd			#Adding admin manually
@@ -296,9 +302,15 @@ A pre-configured admin (manualadd.py) account manages user oversight, approves o
 
 ---
 
-## API Keys Guide
+## Credentials & API Keys Guide
 
 This section explains how to generate each credential used by the project and where it maps in `app/.env`.
+
+### Resend (Email delivery for verification/reset flows)
+1. Create an account at [resend.com](https://resend.com)
+2. Verify a sender/domain
+3. Create an API key
+4. Add `SENDER_EMAIL` and `RESEND_API_KEY` to `app/.env
 
 ### Upstash Redis (Email Verification / Password Reset Code Storage)
 1. Sign in at [console.upstash.com](https://console.upstash.com)
@@ -308,13 +320,6 @@ This section explains how to generate each credential used by the project and wh
    - `UPSTASH_REDIS_REST_URL`
    - `UPSTASH_REDIS_REST_TOKEN`
 5. Add them to `app/.env`
-
-### Gmail App Password Setup
-1. Go to your [Google Account](https://myaccount.google.com/)
-2. Navigate to **Security** → **2-Step Verification** (must be enabled)
-3. At the bottom, click **App Passwords**
-4. Select **Mail** and your device, then click **Generate**
-5. Use the 16-character password as `sender_password` in your `.env`
 
 ### JWT Secret Key (`SECRET_KEY`)
 - Add a random string or generate a secure random key locally by typing the below command in terminal:
@@ -342,6 +347,8 @@ This section explains how to generate each credential used by the project and wh
 ### Optional Security Tuning Vars (No external provider required)
 - `VERIFICATION_CODE_TTL_SECONDS`: default `600` (10 minutes)
 - `MAX_VERIFICATION_ATTEMPTS`: default `5`
+- `PREDICTION_JOB_TTL_SECONDS`: default 7200
+- `PREDICTION_CACHE_TTL_SECONDS`: default 3600
 - Set these in `app/.env` only if you want behavior different from defaults
 
 ---
