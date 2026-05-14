@@ -71,6 +71,11 @@ _JOB_LOCK = threading.Lock()
 MAX_STORED_JOBS = 200   # retained for backward compatibility
 JOB_TTL_SECONDS = int(os.getenv("PREDICTION_JOB_TTL_SECONDS", "7200"))
 
+# Result cache: keyed by (symbol, target_date) — 1 hour TTL so repeated
+# requests within the hour are served instantly from Redis without re-running
+# the 2-5 minute ML pipeline.
+RESULT_CACHE_TTL_SECONDS = int(os.getenv("PREDICTION_CACHE_TTL_SECONDS", "3600"))
+
 def _require_job_store():
     if redis_client is None:
         raise HTTPException(
@@ -80,6 +85,55 @@ def _require_job_store():
 
 def _job_key(job_id: str) -> str:
     return f"predict_job:{job_id}"
+
+# -- Result-cache helpers --
+
+def _cache_key(symbol: str, target_date: str) -> str:
+    """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
+    return f"predict_result:{symbol.upper()}:{target_date}"
+
+def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
+    """Return the cached result dict, or None on miss / Redis unavailable."""
+    if redis_client is None:
+        return None
+    try:
+        payload = redis_client.get(_cache_key(symbol, target_date))
+        if not payload:
+            return None
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+        return json.loads(payload)
+    except Exception as exc:
+        logger.warning(f"[PREDICT] Cache GET failed for {symbol}/{target_date}: {exc}")
+        return None
+
+def _cache_set(symbol: str, target_date: str, result: dict):
+    """Persist a finished result in Redis with a 1-hour TTL."""
+    if redis_client is None:
+        return
+    try:
+        redis_client.setex(
+            _cache_key(symbol, target_date),
+            RESULT_CACHE_TTL_SECONDS,
+            json.dumps(result),
+        )
+        logger.info(
+            f"[PREDICT] Result cached for {symbol}/{target_date} "
+            f"(TTL={RESULT_CACHE_TTL_SECONDS}s)"
+        )
+    except Exception as exc:
+        logger.warning(f"[PREDICT] Cache SET failed for {symbol}/{target_date}: {exc}")
+
+def _cache_ttl_remaining(symbol: str, target_date: str) -> Optional[int]:
+    """Return the seconds remaining on the cache entry, or None if not found."""
+    if redis_client is None:
+        return None
+    try:
+        ttl = redis_client.ttl(_cache_key(symbol, target_date))
+        return int(ttl) if ttl and int(ttl) > 0 else None
+    except Exception as exc:
+        logger.warning(f"[PREDICT] Cache TTL check failed for {symbol}/{target_date}: {exc}")
+        return None
 
 def _load_job(job_id: str) -> Optional[dict]:
     _require_job_store()
@@ -119,9 +173,7 @@ def _evict_old_jobs():
     """No-op when using TTL-based Redis eviction."""
     return
 
-# ─────────────────────────────────────────────────────────────────────
-# Constants  (mirror notebook Cell 3)
-# ─────────────────────────────────────────────────────────────────────
+# --Constants --
 ML_LOOKBACK_YEARS    = 8
 SEQUENCE_LENGTH      = 30
 XGB_WEIGHT           = 0.60
@@ -161,9 +213,8 @@ LSTM_FEATURE_COLS = [
     "atr_pct","volatility_21d","day_of_week","is_earnings_month",
 ]
 
-# ─────────────────────────────────────────────────────────────────────
-# 0. NSE Holiday calendar  (notebook Cell 2)
-# ─────────────────────────────────────────────────────────────────────
+
+# --NSE Holiday calendar --
 
 def get_nse_holidays() -> pd.DataFrame:
     """
@@ -206,9 +257,8 @@ def get_nse_holidays() -> pd.DataFrame:
             "lower_window":0,"upper_window":1,
         })
 
-# ─────────────────────────────────────────────────────────────────────
-# 1. Data helpers  (notebook Cells 3-4)
-# ─────────────────────────────────────────────────────────────────────
+
+# -- Data helpers --
 
 def resolve_yahoo_symbol(symbol: str, db: Session) -> str:
     try:
@@ -270,9 +320,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df.reset_index(drop=True, inplace=True)
     return df
 
-# ─────────────────────────────────────────────────────────────────────
-# 2. Prophet pipeline  (notebook Cells 6-13)
-# ─────────────────────────────────────────────────────────────────────
+# -- Prophet pipeline --
 
 def prepare_prophet_df(df: pd.DataFrame, test_days: int) -> pd.DataFrame:
     df = df.reset_index(drop=True).copy()
@@ -335,9 +383,7 @@ def make_future_df(model, prophet_df: pd.DataFrame, forecast_days: int) -> pd.Da
     future[REGRESSOR_COLS] = future[REGRESSOR_COLS].ffill().bfill()
     return future
 
-# ─────────────────────────────────────────────────────────────────────
-# 2b. Volatile forecast simulation  ← NEW / CORE FIX
-# ─────────────────────────────────────────────────────────────────────
+# -- Volatile forecast simulation --
 
 def simulate_volatile_forecast(prophet_df: pd.DataFrame,
                                 final_forecast: pd.DataFrame,
@@ -396,7 +442,7 @@ def simulate_volatile_forecast(prophet_df: pd.DataFrame,
     if n_future == 0:
         return final_forecast
 
-    # ── Step 1: in-sample percentage residuals ───────────────────────────
+    # -- Step 1: in-sample percentage residuals --
     hist = (
         prophet_df[["ds", "y"]]
         .merge(final_forecast[["ds", "yhat"]], on="ds", how="inner")
@@ -420,7 +466,7 @@ def simulate_volatile_forecast(prophet_df: pd.DataFrame,
         logger.warning("[PREDICT] simulate_volatile_forecast: not enough finite residuals, skipping")
         return final_forecast
 
-    # ── Step 2: AR(1) parameter estimation ──────────────────────────────
+    # -- Step 2: AR(1) parameter estimation --
     # φ  = lag-1 autocorrelation of residuals (momentum persistence)
     # σ² = innovation variance (unconditional var × (1 − φ²))
     if len(pct_res) > 2:
@@ -437,7 +483,7 @@ def simulate_volatile_forecast(prophet_df: pd.DataFrame,
         f"innov_std={innovation_std:.4f}  uncond_std={unconditional_std:.4f}"
     )
 
-    # ── Step 3: simulate future percentage residuals ─────────────────────
+    # -- Step 3: simulate future percentage residuals --
     eps     = np.random.normal(0.0, innovation_std, n_future)
     sim_pct = np.zeros(n_future)
 
@@ -447,14 +493,14 @@ def simulate_volatile_forecast(prophet_df: pd.DataFrame,
     for i in range(1, n_future):
         sim_pct[i] = phi * sim_pct[i - 1] + eps[i]
 
-    # ── Step 4: apply simulated residuals to Prophet's smooth yhat ───────
+    # -- Step 4: apply simulated residuals to Prophet's smooth yhat --
     prophet_yhats = future_fc["yhat"].values.copy()
     new_yhat      = prophet_yhats * (1.0 + sim_pct)
 
-    # Floor at 1 rupee — prices can't go negative
+    # Floor at 1 rupee - prices can't go negative
     new_yhat = np.maximum(new_yhat, 1.0)
 
-    # ── Step 5: re-centre Prophet CI on new path ──────────────────────────
+    # -- Step 5: re-centre Prophet CI on new path --
     # Keep the half-width (uncertainty spread) from Prophet unchanged;
     # just shift the band so it surrounds the new volatile path.
     ci_half = (future_fc["yhat_upper"].values - future_fc["yhat_lower"].values) / 2.0
@@ -467,9 +513,7 @@ def simulate_volatile_forecast(prophet_df: pd.DataFrame,
 
     return result
 
-# ─────────────────────────────────────────────────────────────────────
-# 3. XGBoost feature engineering + pipeline  (notebook Cells 20-29)
-# ─────────────────────────────────────────────────────────────────────
+# -- XGBoost feature engineering + pipeline --
 
 def build_xgb_features(df: pd.DataFrame, prophet_forecast: pd.DataFrame) -> pd.DataFrame:
     """52-feature engineering for XGBoost — exact mirror of notebook Cell 20."""
@@ -632,10 +676,7 @@ def run_xgboost_pipeline(xgb_df: pd.DataFrame, test_days: int,
     return {"signals": sigs, "metrics": {"accuracy": round(acc,1),
                                           "roc_auc":  round(auc,4)}}
 
-# ─────────────────────────────────────────────────────────────────────
-# 4. LSTM pipeline  (notebook Cells 31-37 — PyTorch)
-# ─────────────────────────────────────────────────────────────────────
-
+# -- LSTM pipeline --
 def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
                       honest_fc: pd.DataFrame) -> dict:
     """Train LSTM, return signals + metrics. Gracefully skips if torch absent."""
@@ -743,9 +784,7 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
                                           "roc_auc":  round(auc,4)},
             "lstm_reliable": lstm_reliable}
 
-# ─────────────────────────────────────────────────────────────────────
-# 5. Ensemble  (notebook Cell 38)
-# ─────────────────────────────────────────────────────────────────────
+# -- Ensemble --
 
 def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
                                lstm_sigs: pd.DataFrame,
@@ -778,9 +817,7 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
     df["signal"] = sigs; df["strength"] = strs
     return df
 
-# ─────────────────────────────────────────────────────────────────────
-# 6. Generic backtester  (notebook Cell 26)
-# ─────────────────────────────────────────────────────────────────────
+# -- Generic backtester  --
 
 def run_backtest(signals_df: pd.DataFrame,
                  price_col: str = "Close",
@@ -841,9 +878,7 @@ def run_backtest(signals_df: pd.DataFrame,
         ],
     }
 
-# ─────────────────────────────────────────────────────────────────────
-# 7. Background worker — runs the full pipeline on a thread
-# ─────────────────────────────────────────────────────────────────────
+# -- Background worker --
 
 def _run_pipeline(job_id: str, symbol: str, target_date: str,
                   yahoo_symbol: str, forecast_days: int):
@@ -881,7 +916,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         INDIAN_HOLIDAYS = get_nse_holidays()
         if cancelled(): return
 
-        # ── Prophet on full history ──────────────────────────────
+        # -- Prophet on full history --
         progress(10, "Preparing Prophet dataset (normalising regressors)…")
         prophet_df = prepare_prophet_df(data_df, TEST_DAYS)
         split_idx  = len(prophet_df)-TEST_DAYS
@@ -907,7 +942,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         future_df      = make_future_df(final_model, prophet_df, forecast_days)
         final_forecast = final_model.predict(future_df)
 
-        # ── Detect flat trend BEFORE adding volatility ────────────────
+        # -- Detect flat trend BEFORE adding volatility --
         # forecast_flat should reflect Prophet's underlying trend, not the
         # volatility we are about to inject, so we measure it on the raw
         # smooth forecast here and set the flag now.
@@ -923,7 +958,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             forecast_range_pct = round((_range_smooth / max(current_price, 1e-9)) * 100, 2)
             forecast_flat      = forecast_range_pct < 2.0
 
-        # ── Inject realistic volatility into the smooth forecast ──────
+        # -- Inject realistic volatility into the smooth forecast --
         # This is the core fix: Prophet's raw yhat is the conditional
         # expectation (trend + seasonality only) and looks flat on a chart.
         # simulate_volatile_forecast() overlays AR(1)-modelled residual
@@ -939,7 +974,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         future_only = final_forecast[final_forecast["ds"] > cutoff_date].copy()
         if cancelled(): return
 
-        # ── ML-windowed data ─────────────────────────────────────
+        # -- ML-windowed data --
         progress(38, f"Slicing last {ML_LOOKBACK_YEARS} years for XGBoost/LSTM…")
         ml_cutoff  = pd.Timestamp.today()-pd.DateOffset(years=ML_LOOKBACK_YEARS)
         data_df_ml = data_df[pd.to_datetime(data_df["date"])>=ml_cutoff].reset_index(drop=True)
@@ -961,7 +996,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             honest_fc = final_forecast[["ds","trend","yhat","yhat_lower","yhat_upper"]].copy()
         if cancelled(): return
 
-        # ── XGBoost ──────────────────────────────────────────────
+        # -- XGBoost --
         xgb_result = {"signals":None,"metrics":{"accuracy":None,"roc_auc":None}}
         xgb_bt     = None
         xgb_df_feat= None
@@ -978,7 +1013,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             logger.warning(f"[PREDICT {job_id}] XGBoost error (non-fatal): {e}")
         if cancelled(): return
 
-        # ── LSTM ─────────────────────────────────────────────────
+        # -- LSTM --
         lstm_result = {"signals":None,"metrics":{"accuracy":None,"roc_auc":None},"lstm_reliable":False}
         lstm_bt     = None
         try:
@@ -993,7 +1028,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             logger.warning(f"[PREDICT {job_id}] LSTM error (non-fatal): {e}")
         if cancelled(): return
 
-        # ── Ensemble ─────────────────────────────────────────────
+        # -- Ensemble --
         progress(78, "Combining XGBoost + LSTM into Ensemble (tiered signals)…")
         ens_sigs         = None; ens_bt = None
         current_signal   = "HOLD"
@@ -1020,7 +1055,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] Ensemble error (non-fatal): {e}")
 
-        # ── Prophet direction fallback ────────────────────────────
+        # -- Prophet direction fallback --
         if current_signal == "HOLD" and len(future_only):
             # Use the last yhat from the volatile forecast for the direction
             # check, but cap confidence below 0.55 threshold so the UI
@@ -1037,7 +1072,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 current_conf     = round(min(abs(prophet_pct) / 20.0, 0.45), 3)
                 signal_source    = "prophet_fallback"
 
-        # ── Prophet-only backtest ────────────────────────────────
+        # -- Prophet-only backtest --
         progress(84, "Running Prophet strategy backtest…")
         prophet_bt: dict = {}
         if prophet_val.get("backtest_series"):
@@ -1047,7 +1082,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 else ("SELL" if r["predicted"]<r["actual"]*0.995 else "HOLD"), axis=1)
             prophet_bt = run_backtest(sdf.rename(columns={"actual":"Close"}))
 
-        # ── Assemble response ────────────────────────────────────
+        # -- Assemble response --
         progress(90, "Assembling forecast arrays…")
         hist_cut   = cutoff_date-timedelta(days=180)
         historical = [{"date":r["ds"].strftime("%Y-%m-%d"),"price":round(float(r["y"]),2)}
@@ -1128,13 +1163,16 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         _update_job(job_id, status="done", progress_pct=100,
                     progress_msg="Prediction complete!", result=result)
 
+        # -- Persist result in the 1-hour result cache --
+        # Future requests for the same (symbol, target_date) within 1 hour
+        # will be served directly from Redis without re-running the pipeline.
+        _cache_set(symbol, target_date, result)
+
     except Exception as exc:
         logger.exception(f"[PREDICT {job_id}] Pipeline error: {exc}")
         _update_job(job_id, status="error", progress_msg=str(exc), error=str(exc))
 
-# ─────────────────────────────────────────────────────────────────────
-# 8. API endpoints
-# ─────────────────────────────────────────────────────────────────────
+# -- API endpoints --
 
 @router.post("/{symbol}", status_code=202)
 async def start_prediction(
@@ -1160,6 +1198,39 @@ async def start_prediction(
     yahoo_symbol = resolve_yahoo_symbol(symbol, db)
     _require_job_store()
 
+    # -- Result-cache fast path --
+    # If an identical (symbol, target_date) request completed within the
+    # last hour, synthesise a pre-filled "done" job in Redis and return
+    # it immediately — no ML pipeline needed.
+    cached_result = _cache_get(symbol.upper(), target_date)
+    if cached_result is not None:
+        cache_job_id  = str(uuid.uuid4())
+        ttl_remaining = _cache_ttl_remaining(symbol.upper(), target_date) or RESULT_CACHE_TTL_SECONDS
+        cached_job    = {
+            **_new_job(cache_job_id, symbol.upper(), target_date),
+            "status"      : "done",
+            "progress_pct": 100,
+            "progress_msg": "Served from cache.",
+            "result"      : cached_result,
+            "cached"      : True,
+            "cache_ttl_remaining_seconds": ttl_remaining,
+        }
+        with _JOB_LOCK:
+            _save_job(cache_job_id, cached_job)
+        logger.info(
+            f"[PREDICT] Cache HIT for {symbol.upper()}/{target_date} "
+            f"(TTL remaining: {ttl_remaining}s) → synthetic job {cache_job_id}"
+        )
+        return {
+            "job_id" : cache_job_id,
+            "status" : "done",
+            "cached" : True,
+            "cache_ttl_remaining_seconds": ttl_remaining,
+            "message": "Result served from cache. "
+                       "Poll /api/predict/status/{job_id} to retrieve it.",
+        }
+
+    # -- Cache miss — run the full pipeline --
     job_id = str(uuid.uuid4())
     with _JOB_LOCK:
         _save_job(job_id, _new_job(job_id, symbol.upper(), target_date))
@@ -1174,6 +1245,7 @@ async def start_prediction(
     thread.start()
 
     return {"job_id": job_id, "status": "queued",
+            "cached": False,
             "message": "Prediction started. Poll /api/predict/status/{job_id} for updates."}
 
 
@@ -1205,6 +1277,9 @@ async def get_prediction_status(job_id: str):
         "progress_msg": job["progress_msg"],
         "result"      : job["result"],
         "error"       : job["error"],
+        # Cache metadata — present only on cache-hit synthetic jobs
+        "cached"      : job.get("cached", False),
+        "cache_ttl_remaining_seconds": job.get("cache_ttl_remaining_seconds"),
     }
 
 
