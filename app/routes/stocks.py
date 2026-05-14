@@ -114,7 +114,6 @@ async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, ge=1, le=50, description="Maximum number of results"),
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
 ):
     """
     Search for stocks by name or symbol
