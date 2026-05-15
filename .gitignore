@@ -31,8 +31,5 @@ Thumbs.db
 # IDE
 .vscode/
 
-# Misc
-*.lock
-
 #Patch file
 app/changes.patch
