@@ -1,3 +1,12 @@
+---
+title: Stock Market Predictor
+emoji: 📈
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # 📈 Stock Market Price Trend Prediction and Backtesting Strategy System
 
 A comprehensive, AI-driven web application for stock market analytics, price trend prediction, portfolio management, and real-time market intelligence. Built with **FastAPI**, powered by ensemble machine learning models (**Prophet + XGBoost + LSTM**), and enriched with AI-based news sentiment analysis and equity research tools.
