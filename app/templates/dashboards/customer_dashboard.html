@@ -3319,7 +3319,7 @@
                         <!-- Prophet-fallback explanation banner (hidden unless signal_source=prophet_fallback) -->
                         <div class="prophet-fallback-note" id="predFallbackNote">
                             <span>⚠️</span>
-                            <span><strong>Ensemble returned HOLD</strong> — XGBoost and LSTM both predicted below the 55% confidence threshold. The signal above is based on <strong>Prophet's price direction only</strong> and is <strong>not</strong> backed by ML timing confidence. Treat it as a weak directional suggestion, not an actionable trade signal.</span>
+                            <span><strong>Ensemble returned HOLD</strong> — the ML entry models stayed below the configured entry threshold. The signal above is based on <strong>Prophet's price direction only</strong> and is <strong>not</strong> backed by ML timing confidence. Treat it as a weak directional suggestion, not an actionable trade signal.</span>
                         </div>
 
                         <!-- ③ Model tabs -->
@@ -5396,30 +5396,52 @@ function renderPredictionResults(data) {
         strPill.innerHTML = '<span style="color: #3ba6c6;" class="signal-strength-pill HOLD">Prophet direction only</span>';
     } else {
         const str = data.signal_strength || '—';
-        strPill.innerHTML = `<span style="color: #3ba6c6;" class="signal-strength-pill ${str}">${str}</span>`;
+        const strClass = String(str).replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
+        strPill.innerHTML = `<span style="color: #3ba6c6;" class="signal-strength-pill ${strClass}">${str}</span>`;
     }
 
-    /* Confidence — show N/A for fallback so 19.1% doesn't mislead (Fix 1) */
+    /* Confidence — backend now sends display confidence, not raw entry probability */
     const confEl = document.getElementById('predConfidenceVal');
-    if (isProphetFallback || isNoML) {
+    if (isProphetFallback || isNoML || data.signal_confidence == null) {
         confEl.textContent = 'N/A';
-        confEl.title = 'Ensemble models returned HOLD (below 55% threshold). This signal is Prophet direction only — not an ML confidence score.';
+        confEl.title = 'No comparable ML confidence score is available for this signal.';
         confEl.style.color = '#aaa';
     } else {
-        confEl.textContent = data.signal_confidence ? (data.signal_confidence * 100).toFixed(1) + '%' : '—';
-        confEl.title = '';
+        confEl.textContent = (data.signal_confidence * 100).toFixed(1) + '%';
+
+        if (data.signal === 'HOLD') {
+            const entryProb = data.entry_probability != null
+                ? (data.entry_probability * 100).toFixed(1) + '%'
+                : 'unknown';
+            confEl.title = `HOLD confidence. Good-entry probability is only ${entryProb}.`;
+        } else {
+            const entryProb = data.entry_probability != null
+                ? (data.entry_probability * 100).toFixed(1) + '%'
+                : confEl.textContent;
+            confEl.title = `Active-entry confidence. Good-entry probability: ${entryProb}.`;
+        }
+
         confEl.style.color = '';
     }
 
     /* Models used label */
     const srcParts = [];
     if (data.xgb_metrics && data.xgb_metrics.accuracy !== null) srcParts.push('XGBoost ✓');
-    if (data.lstm_metrics && data.lstm_metrics.accuracy !== null) srcParts.push('LSTM ✓');
-    document.getElementById('predModelSources').textContent =
-        isProphetFallback
-            ? 'Ensemble: HOLD — showing Prophet direction only'
-            : srcParts.length ? 'Models used: Prophet + ' + srcParts.join(' + ')
-            : 'Prophet only';
+    if (data.lstm_metrics && data.lstm_metrics.accuracy !== null) {
+        srcParts.push(data.lstm_reliable ? 'LSTM ✓' : 'LSTM trained, ignored: weak validation');
+    }
+
+    let modelSourceText = 'Prophet only';
+    if (isProphetFallback) {
+        modelSourceText = 'Ensemble: HOLD — showing Prophet direction only';
+    } else if (data.signal_source === 'xgboost_only') {
+        modelSourceText = data.lstm_reliable === false
+            ? 'Models used: Prophet + XGBoost ✓ · LSTM ignored: weak validation'
+            : 'Models used: Prophet + XGBoost ✓';
+    } else if (srcParts.length) {
+        modelSourceText = 'Models used: Prophet + ' + srcParts.join(' + ');
+    }
+    document.getElementById('predModelSources').textContent = modelSourceText;
 
     /* Show/hide prophet fallback note banner (Fix 1) */
     const fallbackNote = document.getElementById('predFallbackNote');
@@ -5625,7 +5647,7 @@ function renderBacktestTable(data) {
     const maxTrades  = allNTrades.length ? Math.max(...allNTrades) : 0;
     if (maxTrades > 0 && maxTrades < 3) {
         tbody.innerHTML += `<tr><td colspan="7" style="background:#fff8e6;color:#856404;font-size:11.5px;padding:10px 12px;border-top:2px solid #ffe082;">
-            ⚠️ <strong>Insufficient trades for statistical validity.</strong> All models made fewer than 3 trades in the ${data.test_days || 60}-day test window, indicating the ensemble threshold (0.55) is too conservative for this stock's volatility. A 100% win rate from 1 trade is meaningless. Results should be treated as indicative only — not as a validated strategy.
+            ⚠️ <strong>Insufficient trades for statistical validity.</strong> All models made fewer than 3 trades in the ${data.test_days || 60}-day test window, indicating the configured entry threshold (${data.entry_threshold != null ? data.entry_threshold.toFixed(2) : 'current'}) may be too conservative for this stock's volatility. A 100% win rate from 1 trade is meaningless. Results should be treated as indicative only — not as a validated strategy.
         </td></tr>`;
     }
     if (bh !== null && bh !== undefined) {
