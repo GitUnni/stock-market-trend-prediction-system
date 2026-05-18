@@ -50,6 +50,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 from typing import Optional
+from urllib.parse import urlparse
 
 from app.deps import get_db
 from app import models
@@ -60,11 +61,33 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────
 # Redis-backed job store
 # ─────────────────────────────────────────────────────────────────────
-redis_url = os.getenv("UPSTASH_REDIS_REST_URL")
-redis_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+def _clean_env(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    return value.strip() if value else None
+
+
+def _is_valid_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+redis_url = _clean_env("UPSTASH_REDIS_REST_URL")
+redis_token = _clean_env("UPSTASH_REDIS_REST_TOKEN")
 redis_client: Optional[Redis] = None
+
 if redis_url and redis_token:
-    redis_client = Redis(url=redis_url, token=redis_token)
+    if not _is_valid_http_url(redis_url):
+        logger.error(
+            "Invalid UPSTASH_REDIS_REST_URL. "
+            "Use the Upstash REST URL and include https://"
+        )
+    else:
+        redis_client = Redis(url=redis_url.rstrip("/"), token=redis_token)
+else:
+    logger.warning(
+        "Prediction Redis is not configured. Set UPSTASH_REDIS_REST_URL "
+        "and UPSTASH_REDIS_REST_TOKEN."
+    )
 
 _JOB_LOCK = threading.Lock()
 
@@ -80,7 +103,11 @@ def _require_job_store():
     if redis_client is None:
         raise HTTPException(
             status_code=503,
-            detail="Prediction jobs require Redis. Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.",
+            detail=(
+                "Prediction jobs require Redis. Configure valid "
+                "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. "
+                "UPSTASH_REDIS_REST_URL must start with https://"
+            ),
         )
 
 def _job_key(job_id: str) -> str:
@@ -90,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:{symbol.upper()}:{target_date}"
+    return f"predict_result:v2:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -176,10 +203,15 @@ def _evict_old_jobs():
 # --Constants --
 ML_LOOKBACK_YEARS    = 8
 SEQUENCE_LENGTH      = 30
-XGB_WEIGHT           = 0.60
-LSTM_WEIGHT          = 0.40
-ENSEMBLE_THRESHOLD   = 0.55
-CONFIDENCE_THRESHOLD = 0.55
+XGB_WEIGHT           = float(os.getenv("PREDICTION_XGB_WEIGHT", "0.65"))
+XGB_WEIGHT           = max(0.0, min(1.0, XGB_WEIGHT))
+LSTM_WEIGHT          = round(1.0 - XGB_WEIGHT, 4)
+CONFIDENCE_THRESHOLD = float(os.getenv("PREDICTION_ENTRY_THRESHOLD", "0.52"))
+CONFIDENCE_THRESHOLD = max(0.0, min(1.0, CONFIDENCE_THRESHOLD))
+ENSEMBLE_THRESHOLD   = CONFIDENCE_THRESHOLD
+FLAT_TREND_PCT       = float(os.getenv("PREDICTION_FLAT_TREND_PCT", "0.002"))
+LSTM_MIN_AUC         = float(os.getenv("PREDICTION_LSTM_MIN_AUC", "0.58"))
+LSTM_MIN_ACCURACY    = float(os.getenv("PREDICTION_LSTM_MIN_ACCURACY", "55.0"))
 
 REGRESSOR_COLS = ["rsi","macd","bb_width","vol_change","daily_return","sma_20","sma_50"]
 
@@ -611,29 +643,71 @@ def build_xgb_features(df: pd.DataFrame, prophet_forecast: pd.DataFrame) -> pd.D
     return df
 
 
+def _prophet_trend_state(honest_fc: pd.DataFrame, dates_series,
+                         lookback: int = 5,
+                         flat_pct: float = FLAT_TREND_PCT) -> np.ndarray:
+    """
+    Convert Prophet trend into a three-state gate: up, down, or flat.
+
+    A flat trend should not be forced into BUY. This avoids the old binary
+    gate where tiny/sideways Prophet movement could still push an active
+    BUY/SELL signal.
+    """
+    pc = honest_fc[["ds", "trend"]].copy()
+    pc["ds"] = pd.to_datetime(pc["ds"]).dt.tz_localize(None)
+
+    dt = pd.to_datetime(pd.Series(dates_series))
+    if dt.dt.tz is not None:
+        dt = dt.dt.tz_localize(None)
+
+    tm = dict(zip(pc["ds"], pc["trend"]))
+    tv = dt.map(tm).ffill().bfill()
+
+    trend_change_pct = (tv.diff(lookback) / tv.shift(lookback)).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    return np.where(
+        trend_change_pct > flat_pct, "up",
+        np.where(trend_change_pct < -flat_pct, "down", "flat")
+    )
+
+
+def _display_signal_confidence(signal: str, entry_prob: Optional[float],
+                               signal_source: str) -> Optional[float]:
+    """
+    entry_prob is the probability of a good active entry.
+    For BUY/SELL, display confidence is entry_prob.
+    For HOLD, display confidence is 1 - entry_prob.
+    Prophet fallback/no-ML signals do not have comparable ML confidence.
+    """
+    if signal_source in {"prophet_fallback", "no_ml"} or entry_prob is None:
+        return None
+
+    try:
+        p = float(entry_prob)
+    except Exception:
+        return None
+
+    p = max(0.0, min(1.0, p))
+    return 1.0 - p if signal == "HOLD" else p
+
+
 def _hierarchical_signals(proba: np.ndarray, dates_series,
                            honest_fc: pd.DataFrame,
                            price_col_series,
                            threshold: float = CONFIDENCE_THRESHOLD) -> pd.DataFrame:
     """Convert model probabilities → BUY/SELL/HOLD using Prophet trend gate."""
-    pc = honest_fc[["ds","trend"]].copy()
-    pc["ds"] = pd.to_datetime(pc["ds"]).dt.tz_localize(None)
-    dt = pd.to_datetime(pd.Series(dates_series))
-    if dt.dt.tz is not None: dt = dt.dt.tz_localize(None)
-    tm = dict(zip(pc["ds"], pc["trend"]))
-    tv = dt.map(tm).ffill().bfill()
-    up = (tv.diff(5).fillna(0) > 0).values
+    trend_state = _prophet_trend_state(honest_fc, dates_series)
 
-    sigs = ["BUY"  if p>=threshold and up[i]
-            else "SELL" if p>=threshold and not up[i]
+    sigs = ["BUY"  if p >= threshold and trend_state[i] == "up"
+            else "SELL" if p >= threshold and trend_state[i] == "down"
             else "HOLD"
             for i, p in enumerate(proba)]
     return pd.DataFrame({
-        "date"            : dates_series,
-        "Close"           : price_col_series,
-        "prob_good_entry" : proba.round(4),
-        "prophet_uptrend" : up.astype(int),
-        "signal"          : sigs,
+        "date"                : dates_series,
+        "Close"               : price_col_series,
+        "prob_good_entry"     : proba.round(4),
+        "prophet_uptrend"     : (trend_state == "up").astype(int),
+        "prophet_trend_state" : trend_state,
+        "signal"              : sigs,
     })
 
 
@@ -777,6 +851,14 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
     try:    auc = float(roc_auc_score(all_lbls, all_probs))
     except: auc = 0.5
 
+    # Sequence count alone is not enough. A weak validation AUC can drag the
+    # ensemble down, so mark LSTM reliable only when it clears performance gates.
+    lstm_reliable = bool(
+        lstm_reliable
+        and auc >= LSTM_MIN_AUC
+        and acc >= LSTM_MIN_ACCURACY
+    )
+
     te_slice = xgb_df.iloc[split:].copy()
     sigs = _hierarchical_signals(all_probs, te_slice["date"].values,
                                   honest_fc, te_slice["Close"].values)
@@ -788,32 +870,49 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
 
 def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
                                lstm_sigs: pd.DataFrame,
-                               honest_fc: pd.DataFrame) -> pd.DataFrame:
+                               honest_fc: pd.DataFrame,
+                               lstm_auc: float = 0.5,
+                               lstm_reliable: bool = False) -> pd.DataFrame:
     xgb = xgb_sigs[["date","Close","prob_good_entry","prophet_uptrend"]].copy()
     xgb.columns = ["date","Close","xgb_prob","prophet_uptrend"]
     lst = lstm_sigs[["date","prob_good_entry"]].rename(
         columns={"prob_good_entry":"lstm_prob"})
     df  = xgb.merge(lst, on="date", how="inner")
 
-    df["ensemble_prob"] = (XGB_WEIGHT*df["xgb_prob"]+LSTM_WEIGHT*df["lstm_prob"]).round(4)
-    df["xgb_agrees"]    = (df["xgb_prob"] >=ENSEMBLE_THRESHOLD).astype(int)
-    df["lstm_agrees"]   = (df["lstm_prob"]>=ENSEMBLE_THRESHOLD).astype(int)
+    # Adaptive weighting: when LSTM validation is weak, reduce its influence.
+    # The caller may also choose XGBoost-only when LSTM is below reliability gates.
+    if not lstm_reliable or lstm_auc < 0.60:
+        eff_xgb  = min(XGB_WEIGHT + 0.15, 0.85)
+        eff_lstm = 1.0 - eff_xgb
+        logger.info(
+            f"[PREDICT] LSTM AUC={lstm_auc:.4f} unreliable/weak — "
+            f"weights adjusted to XGB={eff_xgb:.2f} LSTM={eff_lstm:.2f}"
+        )
+    else:
+        eff_xgb, eff_lstm = XGB_WEIGHT, LSTM_WEIGHT
+
+    df["ensemble_prob"] = (eff_xgb*df["xgb_prob"] + eff_lstm*df["lstm_prob"]).round(4)
+    df["xgb_agrees"]    = (df["xgb_prob"] >= ENSEMBLE_THRESHOLD).astype(int)
+    df["lstm_agrees"]   = (df["lstm_prob"] >= ENSEMBLE_THRESHOLD).astype(int)
     df["both_agree"]    = ((df["xgb_agrees"]==1)&(df["lstm_agrees"]==1)).astype(int)
 
-    pc = honest_fc[["ds","trend"]].copy()
-    pc["ds"] = pd.to_datetime(pc["ds"]).dt.tz_localize(None)
-    dt = pd.to_datetime(df["date"]).dt.tz_localize(None)
-    tm = dict(zip(pc["ds"], pc["trend"]))
-    tv = dt.map(tm).ffill().bfill()
-    df["prophet_up"] = (tv.diff(5).fillna(0)>0).values.astype(int)
+    trend_state = _prophet_trend_state(honest_fc, df["date"].values)
+    df["prophet_trend_state"] = trend_state
+    df["prophet_up"] = (trend_state == "up").astype(int)
 
     sigs, strs = [], []
-    for _, row in df.iterrows():
+    for i, row in df.iterrows():
         act = row["ensemble_prob"] >= ENSEMBLE_THRESHOLD
-        up  = row["prophet_up"] == 1
-        if act and up:     sigs.append("BUY");  strs.append("STRONG" if row["both_agree"] else "NORMAL")
-        elif act and not up: sigs.append("SELL"); strs.append("STRONG" if row["both_agree"] else "NORMAL")
-        else:               sigs.append("HOLD"); strs.append("—")
+        trend = row["prophet_trend_state"]
+        if act and trend == "up":
+            sigs.append("BUY")
+            strs.append("STRONG" if row["both_agree"] else "NORMAL")
+        elif act and trend == "down":
+            sigs.append("SELL")
+            strs.append("STRONG" if row["both_agree"] else "NORMAL")
+        else:
+            sigs.append("HOLD")
+            strs.append("—")
     df["signal"] = sigs; df["strength"] = strs
     return df
 
@@ -1033,24 +1132,31 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         ens_sigs         = None; ens_bt = None
         current_signal   = "HOLD"
         current_strength = "—"
-        current_conf     = 0.0
+        current_entry_probability = None
         signal_source = "no_ml"
 
         try:
             xs = xgb_result["signals"]; ls = lstm_result["signals"]
-            if xs is not None and ls is not None:
-                ens_sigs         = generate_ensemble_signals(xs, ls, honest_fc)
+            lstm_auc_val = lstm_result.get("metrics", {}).get("roc_auc") or 0.5
+            lstm_rel_val = bool(lstm_result.get("lstm_reliable", False))
+
+            if xs is not None and ls is not None and lstm_rel_val:
+                ens_sigs         = generate_ensemble_signals(
+                    xs, ls, honest_fc,
+                    lstm_auc=float(lstm_auc_val),
+                    lstm_reliable=lstm_rel_val,
+                )
                 ens_bt           = run_backtest(ens_sigs)
                 last             = ens_sigs.iloc[-1]
                 current_signal   = str(last["signal"])
                 current_strength = str(last["strength"])
-                current_conf     = float(last["ensemble_prob"])
+                current_entry_probability = float(last["ensemble_prob"])
                 signal_source    = "ensemble"
             elif xs is not None:
                 last             = xs.iloc[-1]
                 current_signal   = str(last["signal"])
-                current_conf     = float(last["prob_good_entry"])
-                current_strength = "—"
+                current_entry_probability = float(last["prob_good_entry"])
+                current_strength = "XGBoost only" if not lstm_rel_val else "—"
                 signal_source    = "xgboost_only"
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] Ensemble error (non-fatal): {e}")
@@ -1058,18 +1164,18 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- Prophet direction fallback --
         if current_signal == "HOLD" and len(future_only):
             # Use the last yhat from the volatile forecast for the direction
-            # check, but cap confidence below 0.55 threshold so the UI
-            # shows a "prophet_only" badge rather than a strong signal.
+            # check. Prophet fallback does not expose ML confidence because it
+            # is not backed by the XGBoost/LSTM entry classifier.
             prophet_pct = (float(future_only["yhat"].iloc[-1]) - current_price) / current_price * 100
             if prophet_pct > 0.5:
                 current_signal   = "BUY"
                 current_strength = "prophet_only"
-                current_conf     = round(min(abs(prophet_pct) / 20.0, 0.45), 3)
+                current_entry_probability = None
                 signal_source    = "prophet_fallback"
             elif prophet_pct < -0.5:
                 current_signal   = "SELL"
                 current_strength = "prophet_only"
-                current_conf     = round(min(abs(prophet_pct) / 20.0, 0.45), 3)
+                current_entry_probability = None
                 signal_source    = "prophet_fallback"
 
         # -- Prophet-only backtest --
@@ -1121,12 +1227,17 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                          .tail(15).assign(date=lambda df: df["date"].astype(str))
                          .to_dict("records"))
 
+        display_confidence = _display_signal_confidence(
+            current_signal, current_entry_probability, signal_source
+        )
+
         result = {
             "symbol": symbol.upper(), "yahoo_symbol": yahoo_symbol,
             "target_date": target_date, "forecast_days": forecast_days,
             "current_price": round(current_price,2),
             "signal": current_signal, "signal_strength": current_strength,
-            "signal_confidence": round(current_conf,3),
+            "signal_confidence": None if display_confidence is None else round(display_confidence, 3),
+            "entry_probability": None if current_entry_probability is None else round(float(current_entry_probability), 3),
             "signal_source": signal_source,
             "target_pred": target_pred,
             "historical": historical, "in_sample_fit": in_sample,
@@ -1154,6 +1265,8 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             "lstm_reliable":       lstm_result.get("lstm_reliable",False),
             "total_training_days": total_days,
             "test_days": TEST_DAYS, "ml_lookback_years": ML_LOOKBACK_YEARS,
+            "entry_threshold": ENSEMBLE_THRESHOLD,
+            "xgb_weight": XGB_WEIGHT, "lstm_weight": LSTM_WEIGHT,
             "train_cutoff": train_df["ds"].max().strftime("%Y-%m-%d"),
             "holiday_source": "pandas_market_calendars (NSE auto)"
                                if len(INDIAN_HOLIDAYS)>100 else "hardcoded fallback",
