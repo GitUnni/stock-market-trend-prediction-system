@@ -26,12 +26,41 @@
         }
 
         .hero {
-            min-height: 75vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: flex-start;
+            min-height: 78vh;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 0.82fr);
+            gap: clamp(34px, 6vw, 72px);
+            align-items: center;
             position: relative;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .hero-flower {
+            position: relative;
+            z-index: 1;
+            min-height: clamp(460px, 48vw, 680px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        #aboutFlowerMount {
+            position: relative;
+            width: clamp(460px, 46vw, 700px);
+            height: clamp(460px, 46vw, 700px);
+            overflow: visible;
+        }
+
+        #aboutFlowerMount canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
         }
 
         .back-button-wrap {
@@ -296,6 +325,17 @@
             .hero {
                 min-height: auto;
                 padding: 40px 0;
+                grid-template-columns: 1fr;
+            }
+
+            .hero-flower {
+                min-height: 360px;
+            }
+
+            #aboutFlowerMount {
+                width: min(100%, 430px);
+                height: 360px;
+                margin: 0 auto;
             }
 
             .back-button-wrap {
@@ -317,9 +357,6 @@
             }
         }
     </style>
-</head>
-
-<body>
     <main class="about-page">
 
         <section class="hero">
@@ -329,15 +366,21 @@
                 </a>
             </div>
 
-            <h1 class="reveal">
-                Welcome to Stock Market Price Trend Prediction and Backtesting Strategy System.
-            </h1>
+            <div class="hero-content">
+                <h1 class="reveal">
+                    Welcome to Stock Market Price Trend Prediction and Backtesting Strategy System.
+                </h1>
 
-            <p class="reveal">
-                Stock Market Price Trend Prediction and Backtesting Strategy System is a comprehensive,
-                AI driven platform engineered to deliver advanced stock market analytics, predictive
-                modelling, and portfolio intelligence for participants across the financial ecosystem.
-            </p>
+                <p class="reveal">
+                    Stock Market Price Trend Prediction and Backtesting Strategy System is a comprehensive,
+                    AI driven platform engineered to deliver advanced stock market analytics, predictive
+                    modelling, and portfolio intelligence for participants across the financial ecosystem.
+                </p>
+            </div>
+
+            <div class="hero-flower reveal" aria-hidden="true">
+                <div id="aboutFlowerMount"></div>
+            </div>
         </section>
 
         <section class="features-section reveal">
@@ -480,6 +523,180 @@
         </section>
 
     </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        /*  Hero flower animation  */
+        (function () {
+            const mount = document.getElementById("aboutFlowerMount");
+            if (!mount || !window.THREE) return;
+
+            let W = 520;
+            let H = 520;
+
+            const scene = new THREE.Scene();
+
+            const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+            camera.position.set(1.2, 1.6, 7.35);
+            camera.lookAt(0, 0, 0);
+
+            const renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+
+            renderer.setClearColor(0x000000, 0);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
+
+            if (THREE.sRGBEncoding) {
+                renderer.outputEncoding = THREE.sRGBEncoding;
+            }
+
+            mount.appendChild(renderer.domElement);
+
+            scene.add(new THREE.AmbientLight(0xfff0ec, 0.48));
+
+            const key = new THREE.DirectionalLight(0xfffaf5, 1.4);
+            key.position.set(4, 6, 5);
+            scene.add(key);
+
+            const fill = new THREE.DirectionalLight(0xcfc0e8, 0.6);
+            fill.position.set(-5, 1, 3);
+            scene.add(fill);
+
+            const rim = new THREE.DirectionalLight(0xffe8dc, 0.35);
+            rim.position.set(0, -5, -4);
+            scene.add(rim);
+
+            const shape = new THREE.Shape();
+            shape.moveTo(0, 0);
+            shape.bezierCurveTo(-0.52, 0.04, -0.68, 0.48, 0, 1.05);
+            shape.bezierCurveTo(0.68, 0.48, 0.52, 0.04, 0, 0);
+
+            const geo = new THREE.ShapeGeometry(shape, 40);
+
+            const PETAL_COUNT = 110;
+            const RADIUS = 1.6;
+            const TWISTS = 2;
+
+            const cWarm = new THREE.Color(0xe0e4ec);
+            const cMid  = new THREE.Color(0x9aa4b8);
+            const cCool = new THREE.Color(0x4a5568);
+
+            const meshes = [];
+            const group = new THREE.Group();
+
+            for (let i = 0; i < PETAL_COUNT; i++) {
+                const t = i / PETAL_COUNT;
+                const ph0 = t * Math.PI * 2 * TWISTS;
+                const blend = (Math.sin(ph0 + 0.5) + 1) * 0.5;
+
+                const col = blend < 0.5
+                    ? cWarm.clone().lerp(cMid, blend * 2)
+                    : cMid.clone().lerp(cCool, (blend - 0.5) * 2);
+
+                const mat = new THREE.MeshPhongMaterial({
+                    color: col,
+                    specular: new THREE.Color(0xfff8f4),
+                    shininess: 42,
+                    side: THREE.DoubleSide
+                });
+
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.matrixAutoUpdate = false;
+                group.add(mesh);
+                meshes.push(mesh);
+            }
+
+            group.rotation.x = 0.28;
+            group.rotation.z = -0.08;
+            scene.add(group);
+
+            function updatePetal(mesh, theta, phi) {
+                const cth = Math.cos(theta);
+                const sth = Math.sin(theta);
+                const cph = Math.cos(phi);
+                const sph = Math.sin(phi);
+
+                const px = cth * RADIUS;
+                const pz = sth * RADIUS;
+
+                const Tx = -sth;
+                const Tz = cth;
+
+                const Fy_x = cth * cph;
+                const Fy_y = sph;
+                const Fy_z = sth * cph;
+
+                const Fx_x = -cth * sph;
+                const Fx_y = cph;
+                const Fx_z = -sth * sph;
+
+                mesh.matrix.set(
+                    Fx_x, Fy_x, Tx, px,
+                    Fx_y, Fy_y, 0, 0,
+                    Fx_z, Fy_z, Tz, pz,
+                    0, 0, 0, 1
+                );
+            }
+
+            function resizeFlower() {
+                const rect = mount.getBoundingClientRect();
+                W = Math.max(320, Math.floor(rect.width));
+                H = Math.max(320, Math.floor(rect.height));
+
+                camera.aspect = W / H;
+                camera.updateProjectionMatrix();
+                renderer.setSize(W, H, false);
+            }
+
+            const resizeObserver = new ResizeObserver(resizeFlower);
+            resizeObserver.observe(mount);
+            resizeFlower();
+
+            let t0 = null;
+            let rotY = 0;
+            const rotX = 0.28;
+            let isVisible = true;
+
+            const visibilityObserver = new IntersectionObserver(
+                entries => {
+                    isVisible = entries[0] ? entries[0].isIntersecting : true;
+                },
+                { threshold: 0.05 }
+            );
+
+            visibilityObserver.observe(mount);
+
+            function tick(ts) {
+                requestAnimationFrame(tick);
+
+                if (!isVisible) return;
+
+                if (t0 === null) t0 = ts;
+                const time = (ts - t0) * 0.001;
+
+                for (let i = 0; i < PETAL_COUNT; i++) {
+                    const t = i / PETAL_COUNT;
+                    const theta = t * Math.PI * 2;
+                    const phi = t * Math.PI * 2 * TWISTS
+                        + time * 0.5
+                        + Math.sin(t * Math.PI * 4 + time * 1.8) * 0.42;
+
+                    updatePetal(meshes[i], theta, phi);
+                }
+
+                rotY += 0.003;
+                group.rotation.y = rotY;
+                group.rotation.x = rotX;
+
+                renderer.render(scene, camera);
+            }
+
+            requestAnimationFrame(tick);
+        })();
+    </script>
 
     <script>
         /*  Reveal on scroll  */
