@@ -4553,6 +4553,11 @@
     async function loadStockDetails(symbol, name) {
         currentStock = { symbol, name };
         currentPeriod = '1d';
+
+        // Reset period buttons: always start on 1D for every new stock
+        document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
+        const defaultBtn = document.querySelector('[data-period="1d"]');
+        if (defaultBtn) defaultBtn.classList.add('active');
         
         // Show stock details view, hide default content
         document.getElementById('stockDetailsView').style.display = 'block';
