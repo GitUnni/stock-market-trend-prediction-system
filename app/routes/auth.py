@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 import secrets
-import resend
+import httpx
 
 from app import models, schemas
 from app.auth import hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM
@@ -116,31 +116,36 @@ def generate_verification_code():
 
 def _send_email(to_email: str, subject: str, body: str) -> bool:
     """
-    Send an email via the Resend HTTP API (no SMTP — works on Render free tier).
-
+    Send email via Brevo REST API (no SMTP — works on Render free tier).
     Required env vars:
-        RESEND_API_KEY   — from https://resend.com (free, no credit card)
-        SENDER_EMAIL     — e.g. "Stock Market System <noreply@yourdomain.com>"
-                           Must be a domain you have verified in Resend.
+        BREVO_API_KEY  — from https://brevo.com (free, no credit card)
+        SENDER_EMAIL   — your verified Gmail address in Brevo
     """
-    resend.api_key = os.getenv("RESEND_API_KEY")
-    sender = os.getenv("SENDER_EMAIL")
+    api_key = os.getenv("BREVO_API_KEY")
+    sender  = os.getenv("SENDER_EMAIL")
 
-    if not resend.api_key or not sender:
-        print("RESEND_API_KEY or SENDER_EMAIL env var is missing.")
+    if not api_key or not sender:
+        print("BREVO_API_KEY or SENDER_EMAIL env var is missing.")
         return False
 
     try:
-        response = resend.Emails.send({
-            "from": sender,
-            "to": [to_email],
-            "subject": subject,
-            "text": body,
-        })
-        # Resend returns an object with an `id` field on success
-        return bool(getattr(response, "id", None) or (isinstance(response, dict) and response.get("id")))
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": api_key,
+                "Content-Type": "application/json",
+            },
+            json={
+                "sender":     {"email": sender},
+                "to":         [{"email": to_email}],
+                "subject":    subject,
+                "textContent": body,
+            },
+            timeout=10,
+        )
+        return response.status_code == 201
     except Exception as e:
-        print(f"Error sending email via Resend: {e}")
+        print(f"Error sending email via Brevo: {e}")
         return False
 
 
