@@ -13,16 +13,32 @@
 
         body {
             margin: 0;
-            background: #eff0f4;
             color: #111111;
             font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             line-height: 1.6;
+        }
+
+        /* Fixed bull watermark — stays locked to the viewport on scroll */
+        .bull-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('/static/img/transparent_bull.png');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: cover;
+            pointer-events: none;   /* clicks pass straight through to content */
+            z-index: 0;             /* sits above the body colour, below all content */
         }
 
         .about-page {
             width: min(1100px, 92%);
             margin: 0 auto;
             padding: 80px 0;
+            position: relative;
+            z-index: 1;  /* sits above the fixed .bull-bg layer */
         }
 
         .hero {
@@ -357,6 +373,7 @@
             }
         }
     </style>
+    <div class="bull-bg" aria-hidden="true"></div>
     <main class="about-page">
 
         <section class="hero">
@@ -580,9 +597,9 @@
             const RADIUS = 1.6;
             const TWISTS = 2;
 
-            const cWarm = new THREE.Color(0xe0e4ec);
-            const cMid  = new THREE.Color(0x9aa4b8);
-            const cCool = new THREE.Color(0x4a5568);
+            const cWarm = new THREE.Color(0x868686);
+            const cMid  = new THREE.Color(0xe5e7eb);
+            const cCool = new THREE.Color(0x5f6368);
 
             const meshes = [];
             const group = new THREE.Group();
