@@ -117,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:v2:{symbol.upper()}:{target_date}"
+    return f"predict_result:v4:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -209,6 +209,23 @@ LSTM_WEIGHT          = round(1.0 - XGB_WEIGHT, 4)
 CONFIDENCE_THRESHOLD = float(os.getenv("PREDICTION_ENTRY_THRESHOLD", "0.52"))
 CONFIDENCE_THRESHOLD = max(0.0, min(1.0, CONFIDENCE_THRESHOLD))
 ENSEMBLE_THRESHOLD   = CONFIDENCE_THRESHOLD
+
+# Backtesting/strategy-layer settings. XGBoost and LSTM produce entry-quality
+# probabilities; the strategy layer below controls exits separately.
+PREFERRED_BACKTEST_DAYS = int(os.getenv("PREDICTION_BACKTEST_DAYS", "252"))
+MIN_BACKTEST_DAYS       = int(os.getenv("PREDICTION_MIN_BACKTEST_DAYS", "180"))
+EXIT_PROB_THRESHOLD     = float(os.getenv("PREDICTION_EXIT_PROB_THRESHOLD", "0.45"))
+STOP_LOSS_PCT           = float(os.getenv("PREDICTION_STOP_LOSS_PCT", "0.05"))
+TAKE_PROFIT_PCT         = float(os.getenv("PREDICTION_TAKE_PROFIT_PCT", "0.12"))
+MAX_HOLD_DAYS           = int(os.getenv("PREDICTION_MAX_HOLD_DAYS", "30"))
+
+PREFERRED_BACKTEST_DAYS = max(60, min(504, PREFERRED_BACKTEST_DAYS))
+MIN_BACKTEST_DAYS       = max(60, min(PREFERRED_BACKTEST_DAYS, MIN_BACKTEST_DAYS))
+EXIT_PROB_THRESHOLD     = max(0.0, min(CONFIDENCE_THRESHOLD, EXIT_PROB_THRESHOLD))
+STOP_LOSS_PCT           = max(0.0, min(0.50, STOP_LOSS_PCT))
+TAKE_PROFIT_PCT         = max(0.0, min(1.00, TAKE_PROFIT_PCT))
+MAX_HOLD_DAYS           = max(5, min(252, MAX_HOLD_DAYS))
+
 FLAT_TREND_PCT       = float(os.getenv("PREDICTION_FLAT_TREND_PCT", "0.002"))
 LSTM_MIN_AUC         = float(os.getenv("PREDICTION_LSTM_MIN_AUC", "0.58"))
 LSTM_MIN_ACCURACY    = float(os.getenv("PREDICTION_LSTM_MIN_ACCURACY", "55.0"))
@@ -671,12 +688,21 @@ def _prophet_trend_state(honest_fc: pd.DataFrame, dates_series,
 
 
 def _display_signal_confidence(signal: str, entry_prob: Optional[float],
-                               signal_source: str) -> Optional[float]:
+                               signal_source: str,
+                               signal_strength: Optional[str] = None) -> Optional[float]:
     """
     entry_prob is the probability of a good active entry.
-    For BUY/SELL, display confidence is entry_prob.
-    For HOLD, display confidence is 1 - entry_prob.
-    Prophet fallback/no-ML signals do not have comparable ML confidence.
+
+    BUY/SELL:
+        display confidence = entry_prob.
+
+    HOLD caused by low probability:
+        display confidence = 1 - entry_prob.
+
+    HOLD caused by Prophet's flat-trend gate:
+        display confidence = None, because this is not a confident "no-trade"
+        probability. It means the timing models may be active, but the direction
+        gate blocked BUY/SELL because the trend is sideways.
     """
     if signal_source in {"prophet_fallback", "no_ml"} or entry_prob is None:
         return None
@@ -687,7 +713,31 @@ def _display_signal_confidence(signal: str, entry_prob: Optional[float],
         return None
 
     p = max(0.0, min(1.0, p))
+    strength = str(signal_strength or "").upper()
+
+    if signal == "HOLD" and (strength == "FLAT GATE" or p >= CONFIDENCE_THRESHOLD):
+        return None
     return 1.0 - p if signal == "HOLD" else p
+
+
+def _build_signal_reason(signal: str,
+                         signal_strength: Optional[str],
+                         entry_prob: Optional[float],
+                         signal_source: str) -> str:
+    """Short human-readable reason for the top signal card."""
+    if signal_source == "prophet_fallback":
+        return "Prophet-only directional fallback"
+    if signal_source == "no_ml":
+        return "ML timing confidence unavailable"
+
+    strength = str(signal_strength or "").upper()
+    if signal == "HOLD" and strength == "FLAT GATE":
+        return "Timing probability crossed the threshold, but Prophet trend was flat"
+    if signal == "HOLD" and strength == "LOW PROB":
+        return "Timing probability stayed below the entry threshold"
+    if signal in {"BUY", "SELL"} and entry_prob is not None:
+        return f"Active timing probability: {float(entry_prob) * 100:.1f}%"
+    return ""
 
 
 def _hierarchical_signals(proba: np.ndarray, dates_series,
@@ -697,10 +747,21 @@ def _hierarchical_signals(proba: np.ndarray, dates_series,
     """Convert model probabilities → BUY/SELL/HOLD using Prophet trend gate."""
     trend_state = _prophet_trend_state(honest_fc, dates_series)
 
-    sigs = ["BUY"  if p >= threshold and trend_state[i] == "up"
-            else "SELL" if p >= threshold and trend_state[i] == "down"
-            else "HOLD"
-            for i, p in enumerate(proba)]
+    sigs, strengths = [], []
+    for i, p in enumerate(proba):
+        if p >= threshold and trend_state[i] == "up":
+            sigs.append("BUY")
+            strengths.append("ACTIVE")
+        elif p >= threshold and trend_state[i] == "down":
+            sigs.append("SELL")
+            strengths.append("ACTIVE")
+        elif p >= threshold and trend_state[i] == "flat":
+            sigs.append("HOLD")
+            strengths.append("FLAT GATE")
+        else:
+            sigs.append("HOLD")
+            strengths.append("LOW PROB")
+
     return pd.DataFrame({
         "date"                : dates_series,
         "Close"               : price_col_series,
@@ -708,6 +769,7 @@ def _hierarchical_signals(proba: np.ndarray, dates_series,
         "prophet_uptrend"     : (trend_state == "up").astype(int),
         "prophet_trend_state" : trend_state,
         "signal"              : sigs,
+        "strength"            : strengths,
     })
 
 
@@ -910,69 +972,475 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
         elif act and trend == "down":
             sigs.append("SELL")
             strs.append("STRONG" if row["both_agree"] else "NORMAL")
+        elif act and trend == "flat":
+            # Important for UI: this is not a low-confidence HOLD.
+            # The timing models are active, but Prophet's direction gate says the
+            # price trend is sideways, so the active trade is blocked.
+            sigs.append("HOLD")
+            strs.append("FLAT GATE")
         else:
             sigs.append("HOLD")
-            strs.append("—")
+            strs.append("LOW PROB")
     df["signal"] = sigs; df["strength"] = strs
     return df
+
+# -- Strategy conversion + diagnostics --
+
+def _normalise_trend_state(df: pd.DataFrame) -> pd.Series:
+    """Return a clean up/down/flat trend-state series for strategy rules."""
+    if "prophet_trend_state" in df.columns:
+        state = df["prophet_trend_state"].astype(str).str.lower()
+        return state.where(state.isin(["up", "down", "flat"]), "flat")
+    if "prophet_uptrend" in df.columns:
+        return np.where(pd.to_numeric(df["prophet_uptrend"], errors="coerce").fillna(0).astype(int) == 1, "up", "down")
+    if "prophet_up" in df.columns:
+        return np.where(pd.to_numeric(df["prophet_up"], errors="coerce").fillna(0).astype(int) == 1, "up", "down")
+    return pd.Series(["flat"] * len(df), index=df.index)
+
+
+def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
+                                      prob_col: str,
+                                      model_name: str,
+                                      price_col: str = "Close",
+                                      entry_threshold: float = CONFIDENCE_THRESHOLD,
+                                      exit_threshold: float = EXIT_PROB_THRESHOLD,
+                                      stop_loss_pct: float = STOP_LOSS_PCT,
+                                      take_profit_pct: float = TAKE_PROFIT_PCT,
+                                      max_hold_days: int = MAX_HOLD_DAYS) -> pd.DataFrame:
+    """
+    Convert entry-quality probabilities into a real long-only strategy.
+
+    XGBoost/LSTM/Ensemble probabilities answer only one question:
+        "Is this a good active entry/timing setup?"
+
+    They are not complete trading systems by themselves. This function adds a
+    separate exit layer so backtesting can produce multiple completed trades:
+      - enter only when probability >= entry_threshold and Prophet trend is up
+      - exit when probability falls below exit_threshold
+      - exit when Prophet trend becomes flat/down
+      - exit on stop-loss, take-profit, or max holding period
+    """
+    if signals_df is None or signals_df.empty:
+        return pd.DataFrame()
+
+    df = signals_df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df = df.dropna(subset=["date", price_col]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        return df
+
+    if prob_col not in df.columns:
+        # Without a probability column we cannot build an entry-quality strategy.
+        df["entry_prob"] = np.nan
+        df["signal"] = "HOLD"
+        df["strategy_signal"] = "HOLD"
+        df["trade_reason"] = "NO_PROBABILITY"
+        return df
+
+    df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
+    df["prophet_trend_state"] = list(_normalise_trend_state(df))
+    df["entry_quality"] = df["entry_prob"] >= entry_threshold
+
+    strategy_signals, reasons = [], []
+    position = "OUT"
+    entry_price = None
+    entry_date = None
+
+    for _, row in df.iterrows():
+        px = float(row[price_col])
+        prob = float(row["entry_prob"])
+        trend = str(row["prophet_trend_state"]).lower()
+        dt = row["date"]
+        sig = "HOLD"
+        reason = "WAITING_FOR_ENTRY"
+
+        if position == "OUT":
+            if prob >= entry_threshold and trend == "up":
+                sig = "BUY"
+                reason = "ENTRY_PROB_AND_UPTREND"
+                position = "IN"
+                entry_price = px
+                entry_date = dt
+            elif prob >= entry_threshold and trend == "flat":
+                reason = "ENTRY_BLOCKED_FLAT_TREND"
+            elif prob >= entry_threshold and trend == "down":
+                reason = "ENTRY_BLOCKED_DOWNTREND"
+            else:
+                reason = "LOW_ENTRY_PROBABILITY"
+        else:
+            hold_days = int((dt - entry_date).days) if entry_date is not None else 0
+            ret = (px / entry_price - 1.0) if entry_price else 0.0
+
+            if trend != "up":
+                sig = "SELL"
+                reason = "EXIT_TREND_NOT_UP"
+            elif prob <= exit_threshold:
+                sig = "SELL"
+                reason = "EXIT_PROB_DROPPED"
+            elif stop_loss_pct > 0 and ret <= -stop_loss_pct:
+                sig = "SELL"
+                reason = "EXIT_STOP_LOSS"
+            elif take_profit_pct > 0 and ret >= take_profit_pct:
+                sig = "SELL"
+                reason = "EXIT_TAKE_PROFIT"
+            elif hold_days >= max_hold_days:
+                sig = "SELL"
+                reason = "EXIT_MAX_HOLD_DAYS"
+            else:
+                reason = "HOLDING_POSITION"
+
+            if sig == "SELL":
+                position = "OUT"
+                entry_price = None
+                entry_date = None
+
+        strategy_signals.append(sig)
+        reasons.append(reason)
+
+    df["strategy_signal"] = strategy_signals
+    df["trade_reason"] = reasons
+    # run_backtest reads the 'signal' column, so replace the model's raw
+    # advisory signal with the complete strategy signal in this returned copy.
+    df["raw_model_signal"] = df.get("signal", "HOLD")
+    df["signal"] = df["strategy_signal"]
+    df["model_name"] = model_name
+    return df
+
+
+def build_prophet_strategy_signals(backtest_series: list,
+                                   entry_threshold_pct: float = 0.005,
+                                   exit_threshold_pct: float = 0.000,
+                                   price_col: str = "Close") -> pd.DataFrame:
+    """Create a Prophet-only strategy with separate entry and exit rules."""
+    if not backtest_series:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(backtest_series).copy()
+    if df.empty or "actual" not in df.columns or "predicted" not in df.columns:
+        return pd.DataFrame()
+
+    df.rename(columns={"actual": price_col}, inplace=True)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df["predicted"] = pd.to_numeric(df["predicted"], errors="coerce")
+    df = df.dropna(subset=["date", price_col, "predicted"]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        return df
+
+    df["predicted_edge_pct"] = (df["predicted"] / df[price_col] - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    signals, reasons = [], []
+    position = "OUT"
+    entry_price = None
+    entry_date = None
+
+    for _, row in df.iterrows():
+        px = float(row[price_col])
+        edge = float(row["predicted_edge_pct"])
+        dt = row["date"]
+        sig = "HOLD"
+        reason = "WAITING_FOR_ENTRY"
+
+        if position == "OUT":
+            if edge >= entry_threshold_pct:
+                sig = "BUY"
+                reason = "PROPHET_POSITIVE_EDGE"
+                position = "IN"
+                entry_price = px
+                entry_date = dt
+            else:
+                reason = "NO_POSITIVE_EDGE"
+        else:
+            hold_days = int((dt - entry_date).days) if entry_date is not None else 0
+            ret = (px / entry_price - 1.0) if entry_price else 0.0
+            if edge <= exit_threshold_pct:
+                sig = "SELL"
+                reason = "PROPHET_EDGE_FADED"
+            elif STOP_LOSS_PCT > 0 and ret <= -STOP_LOSS_PCT:
+                sig = "SELL"
+                reason = "EXIT_STOP_LOSS"
+            elif TAKE_PROFIT_PCT > 0 and ret >= TAKE_PROFIT_PCT:
+                sig = "SELL"
+                reason = "EXIT_TAKE_PROFIT"
+            elif hold_days >= MAX_HOLD_DAYS:
+                sig = "SELL"
+                reason = "EXIT_MAX_HOLD_DAYS"
+            else:
+                reason = "HOLDING_POSITION"
+
+            if sig == "SELL":
+                position = "OUT"
+                entry_price = None
+                entry_date = None
+
+        signals.append(sig)
+        reasons.append(reason)
+
+    df["signal"] = signals
+    df["strategy_signal"] = signals
+    df["trade_reason"] = reasons
+    return df
+
+
+def signal_diagnostics(signals_df: pd.DataFrame,
+                       prob_col: Optional[str] = None,
+                       backtest_result: Optional[dict] = None) -> dict:
+    """Small, UI-friendly explanation of why a model did or did not trade."""
+    if signals_df is None or signals_df.empty:
+        return {
+            "days": 0,
+            "high_probability_days": 0,
+            "exit_probability_days": 0,
+            "low_probability_days": 0,
+            "flat_gate_days": 0,
+            "uptrend_days": 0,
+            "downtrend_days": 0,
+            "buy_signals": 0,
+            "sell_signals": 0,
+            "hold_signals": 0,
+            "completed_trades": 0,
+            "entry_threshold": round(CONFIDENCE_THRESHOLD, 3),
+            "exit_threshold": round(EXIT_PROB_THRESHOLD, 3),
+            "message": "No signal data available",
+        }
+
+    df = signals_df.copy()
+    trend_state = _normalise_trend_state(df)
+    sigs = df.get("signal", pd.Series(["HOLD"] * len(df))).fillna("HOLD").astype(str).str.upper()
+
+    if prob_col and prob_col in df.columns:
+        probs = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
+        high_probability_days = int((probs >= CONFIDENCE_THRESHOLD).sum())
+        exit_probability_days = int((probs <= EXIT_PROB_THRESHOLD).sum())
+        low_probability_days = int((probs < CONFIDENCE_THRESHOLD).sum())
+        flat_gate_days = int(((probs >= CONFIDENCE_THRESHOLD) & (trend_state == "flat")).sum())
+    else:
+        high_probability_days = 0
+        exit_probability_days = 0
+        low_probability_days = 0
+        flat_gate_days = 0
+
+    bt = backtest_result or {}
+    buy_signals = int((sigs == "BUY").sum())
+    sell_signals = int((sigs == "SELL").sum())
+    completed = int(bt.get("n_trades", 0) or 0)
+
+    if completed == 0 and high_probability_days == 0:
+        message = "No entries: probability never crossed the entry threshold."
+    elif completed == 0 and buy_signals == 0 and flat_gate_days > 0:
+        message = "Entries were blocked because Prophet trend was flat."
+    elif completed == 0 and buy_signals == 0:
+        message = "No long entries: timing was high only during flat/downtrend days."
+    elif completed < 3:
+        message = "Low sample: the strategy traded, but not enough times for strong statistical confidence."
+    else:
+        message = "Enough completed trades to make the backtest more readable; still not a guarantee."
+
+    return {
+        "days": int(len(df)),
+        "high_probability_days": high_probability_days,
+        "exit_probability_days": exit_probability_days,
+        "low_probability_days": low_probability_days,
+        "flat_gate_days": flat_gate_days,
+        "uptrend_days": int((trend_state == "up").sum()),
+        "downtrend_days": int((trend_state == "down").sum()),
+        "buy_signals": buy_signals,
+        "sell_signals": sell_signals,
+        "hold_signals": int((sigs == "HOLD").sum()),
+        "completed_trades": completed,
+        "entry_threshold": round(CONFIDENCE_THRESHOLD, 3),
+        "exit_threshold": round(EXIT_PROB_THRESHOLD, 3),
+        "stop_loss_pct": round(STOP_LOSS_PCT * 100, 2),
+        "take_profit_pct": round(TAKE_PROFIT_PCT * 100, 2),
+        "max_hold_days": int(MAX_HOLD_DAYS),
+        "message": message,
+    }
 
 # -- Generic backtester  --
 
 def run_backtest(signals_df: pd.DataFrame,
                  price_col: str = "Close",
                  initial_capital: float = 100_000) -> dict:
-    prices = signals_df[price_col].values; signals = signals_df["signal"].values
-    dates  = pd.to_datetime(signals_df["date"].values); n = len(prices)
-    cash, shares, position = initial_capital, 0.0, "OUT"
-    pvals, trades = [], []
+    """
+    Long-only signal backtest.
 
-    for i in range(n):
-        px, sig = prices[i], signals[i]
-        if sig=="BUY" and position=="OUT":
-            shares=cash/px; cash=0.0; position="IN"
-            trades.append({"date":dates[i],"action":"BUY","price":px,"shares":shares})
-        elif sig=="SELL" and position=="IN":
-            cash=shares*px; shares=0.0; position="OUT"
-            trades.append({"date":dates[i],"action":"SELL","price":px,"shares":0.0})
-        pvals.append(cash+shares*px)
+    BUY  = enter with full available cash
+    SELL = exit to cash
+    HOLD = do nothing
 
-    if position=="IN":
-        cash=shares*prices[-1]
-        trades.append({"date":dates[-1],"action":"SELL (close)","price":prices[-1],"shares":0.0})
-        pvals[-1]=cash
+    The function intentionally returns explicit no-trade metadata. Earlier the
+    UI displayed many 0.00 values, which looked like a broken table. In reality,
+    0.00 often means the strategy stayed in cash because no completed BUY→SELL
+    cycle occurred in the held-out test window.
+    """
+    if signals_df is None or signals_df.empty or price_col not in signals_df.columns:
+        return {
+            "total_return": None,
+            "bh_total_return": None,
+            "sharpe": None,
+            "bh_sharpe": None,
+            "max_drawdown": None,
+            "bh_max_drawdown": None,
+            "win_rate": None,
+            "profit_factor": None,
+            "n_trades": 0,
+            "n_entries": 0,
+            "n_exits": 0,
+            "buy_signals": 0,
+            "sell_signals": 0,
+            "hold_signals": 0,
+            "status": "NO_DATA",
+            "status_reason": "Backtest data unavailable",
+            "portfolio_timeline": [],
+        }
 
-    pvals = np.array(pvals); bh = (initial_capital/prices[0])*prices
+    df = signals_df.copy()
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date", price_col]).sort_values("date").reset_index(drop=True)
 
-    def safe_sharpe(rets):
-        ex = rets-0.065/252; s = np.std(ex)
-        return float((np.mean(ex)/s*np.sqrt(252)) if s>1e-8 else 0.0)
-    def max_dd(v):
-        pk=v[0]; w=0.0
-        for x in v: pk=max(pk,x); w=max(w,(pk-x)/(pk+1e-9))
-        return float(w*100)
+    if df.empty:
+        return {
+            "total_return": None,
+            "bh_total_return": None,
+            "sharpe": None,
+            "bh_sharpe": None,
+            "max_drawdown": None,
+            "bh_max_drawdown": None,
+            "win_rate": None,
+            "profit_factor": None,
+            "n_trades": 0,
+            "n_entries": 0,
+            "n_exits": 0,
+            "buy_signals": 0,
+            "sell_signals": 0,
+            "hold_signals": 0,
+            "status": "NO_DATA",
+            "status_reason": "Backtest data unavailable",
+            "portfolio_timeline": [],
+        }
 
-    dr  = np.diff(pvals)/(pvals[:-1]+1e-9)
-    bdr = np.diff(bh)/(bh[:-1]+1e-9)
-    tdf = pd.DataFrame(trades); profits, buy_px = [], None
-    for _, r in tdf.iterrows():
-        if r["action"]=="BUY": buy_px=r["price"]
-        elif "SELL" in r["action"] and buy_px is not None:
-            profits.append(r["price"]-buy_px); buy_px=None
+    prices = df[price_col].astype(float).to_numpy()
+    signals = df.get("signal", pd.Series(["HOLD"] * len(df))).fillna("HOLD").astype(str).str.upper().to_numpy()
+    dates = pd.to_datetime(df["date"].values)
 
-    wins   = [p for p in profits if p>0]
-    losses = [abs(p) for p in profits if p<0]
+    buy_signals = int(np.sum(signals == "BUY"))
+    sell_signals = int(np.sum(signals == "SELL"))
+    hold_signals = int(np.sum(signals == "HOLD"))
+
+    cash, shares, position = float(initial_capital), 0.0, "OUT"
+    pvals, trades, completed = [], [], []
+    buy_px, buy_date = None, None
+
+    for i, (px, sig) in enumerate(zip(prices, signals)):
+        px = float(px)
+        if not np.isfinite(px) or px <= 0:
+            pvals.append(cash if position == "OUT" else cash + shares * max(px, 0))
+            continue
+
+        if sig == "BUY" and position == "OUT":
+            shares = cash / px
+            cash = 0.0
+            position = "IN"
+            buy_px, buy_date = px, dates[i]
+            trades.append({"date": dates[i], "action": "BUY", "price": px, "shares": shares})
+        elif sig == "SELL" and position == "IN":
+            cash = shares * px
+            pnl_pct = (px / buy_px - 1.0) * 100 if buy_px else 0.0
+            completed.append({"buy_date": buy_date, "sell_date": dates[i], "buy": buy_px, "sell": px, "pnl_pct": pnl_pct})
+            shares = 0.0
+            position = "OUT"
+            buy_px, buy_date = None, None
+            trades.append({"date": dates[i], "action": "SELL", "price": px, "shares": 0.0})
+
+        pvals.append(cash + shares * px)
+
+    if position == "IN":
+        px = float(prices[-1])
+        cash = shares * px
+        pnl_pct = (px / buy_px - 1.0) * 100 if buy_px else 0.0
+        completed.append({"buy_date": buy_date, "sell_date": dates[-1], "buy": buy_px, "sell": px, "pnl_pct": pnl_pct})
+        trades.append({"date": dates[-1], "action": "SELL (close)", "price": px, "shares": 0.0})
+        shares = 0.0
+        position = "OUT"
+        pvals[-1] = cash
+
+    pvals = np.array(pvals, dtype=float)
+    bh = (initial_capital / prices[0]) * prices
+
+    def safe_sharpe(rets: np.ndarray) -> Optional[float]:
+        if rets is None or len(rets) < 2 or not np.isfinite(rets).any():
+            return None
+        ex = rets - 0.065 / 252
+        s = float(np.nanstd(ex))
+        if s <= 1e-8:
+            return None
+        return float(np.nanmean(ex) / s * np.sqrt(252))
+
+    def max_dd(v: np.ndarray) -> Optional[float]:
+        if v is None or len(v) == 0:
+            return None
+        pk = float(v[0])
+        w = 0.0
+        for x in v:
+            x = float(x)
+            pk = max(pk, x)
+            w = max(w, (pk - x) / (pk + 1e-9))
+        return float(w * 100)
+
+    dr = np.diff(pvals) / (pvals[:-1] + 1e-9) if len(pvals) > 1 else np.array([])
+    bdr = np.diff(bh) / (bh[:-1] + 1e-9) if len(bh) > 1 else np.array([])
+
+    n_trades = len(completed)
+    pnl_pcts = [float(t["pnl_pct"]) for t in completed]
+    wins = [p for p in pnl_pcts if p > 0]
+    losses = [abs(p) for p in pnl_pcts if p < 0]
+
+    if n_trades == 0:
+        if buy_signals == 0:
+            status_reason = "No BUY signal triggered"
+        elif sell_signals == 0:
+            status_reason = "No completed BUY → SELL cycle"
+        else:
+            status_reason = "No completed trade cycle"
+        status = "NO_TRADES"
+        sharpe = None
+        win_rate = None
+        profit_factor = None
+    else:
+        status = "ACTIVE"
+        status_reason = f"{n_trades} completed trade{'s' if n_trades != 1 else ''}"
+        sharpe = safe_sharpe(dr)
+        win_rate = float(len(wins) / n_trades * 100)
+        if losses:
+            profit_factor = float(sum(wins) / (sum(losses) + 1e-9))
+        elif wins:
+            profit_factor = None  # mathematically infinite; leave UI to show —
+        else:
+            profit_factor = 0.0
+
+    def rnd(x, nd=2):
+        return None if x is None or not np.isfinite(float(x)) else round(float(x), nd)
+
     return {
-        "total_return"    : round(float((pvals[-1]/initial_capital-1)*100),2),
-        "bh_total_return" : round(float((bh[-1]/initial_capital-1)*100),2),
-        "sharpe"          : round(safe_sharpe(dr),2),
-        "bh_sharpe"       : round(safe_sharpe(bdr),2),
-        "max_drawdown"    : round(max_dd(pvals),2),
-        "bh_max_drawdown" : round(max_dd(bh),2),
-        "win_rate"        : round(float(len(wins)/len(profits)*100) if profits else 0,1),
-        "profit_factor"   : round(float(sum(wins)/(sum(losses)+1e-9)) if profits else 0,2),
-        "n_trades"        : len(profits),
+        "total_return": rnd((pvals[-1] / initial_capital - 1) * 100, 2),
+        "bh_total_return": rnd((bh[-1] / initial_capital - 1) * 100, 2),
+        "sharpe": rnd(sharpe, 2),
+        "bh_sharpe": rnd(safe_sharpe(bdr), 2),
+        "max_drawdown": rnd(max_dd(pvals), 2),
+        "bh_max_drawdown": rnd(max_dd(bh), 2),
+        "win_rate": rnd(win_rate, 1),
+        "profit_factor": rnd(profit_factor, 2),
+        "n_trades": int(n_trades),
+        "n_entries": int(sum(1 for t in trades if t["action"] == "BUY")),
+        "n_exits": int(sum(1 for t in trades if "SELL" in t["action"])),
+        "buy_signals": buy_signals,
+        "sell_signals": sell_signals,
+        "hold_signals": hold_signals,
+        "status": status,
+        "status_reason": status_reason,
         "portfolio_timeline": [
-            {"date": str(d.date()), "strategy": round(float(v),2), "bh": round(float(b),2)}
+            {"date": str(d.date()), "strategy": round(float(v), 2), "bh": round(float(b), 2)}
             for d, v, b in zip(dates, pvals, bh)
         ],
     }
@@ -1007,7 +1475,16 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         progress(6, "Computing technical indicators…")
         data_df    = add_technical_indicators(raw_df.copy())
         total_days = len(data_df)
-        TEST_DAYS  = min(60, max(20, total_days//10))
+
+        # Use a meaningful held-out window for backtesting. 60 trading days was
+        # too short and regularly produced 0-1 trades. Prefer ~1 trading year
+        # when enough history exists, fall back safely for newer stocks.
+        if total_days >= PREFERRED_BACKTEST_DAYS + 300:
+            TEST_DAYS = PREFERRED_BACKTEST_DAYS
+        elif total_days >= MIN_BACKTEST_DAYS + 300:
+            TEST_DAYS = MIN_BACKTEST_DAYS
+        else:
+            TEST_DAYS = min(90, max(30, total_days // 10))
 
         if total_days < TEST_DAYS + 100:
             raise ValueError(f"Not enough history ({total_days} days). Need ≥ {TEST_DAYS+100}.")
@@ -1098,6 +1575,8 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- XGBoost --
         xgb_result = {"signals":None,"metrics":{"accuracy":None,"roc_auc":None}}
         xgb_bt     = None
+        xgb_strategy_sigs = None
+        xgb_diag   = {}
         xgb_df_feat= None
         try:
             import xgboost  # noqa — check availability
@@ -1107,7 +1586,13 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 if cancelled(): return
                 progress(54, "Training XGBoost classifier (feature selection + fit)…")
                 xgb_result = run_xgboost_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
-                xgb_bt     = run_backtest(xgb_result["signals"])
+                xgb_strategy_sigs = build_entry_exit_strategy_signals(
+                    xgb_result["signals"],
+                    prob_col="prob_good_entry",
+                    model_name="XGBoost",
+                )
+                xgb_bt = run_backtest(xgb_strategy_sigs)
+                xgb_diag = signal_diagnostics(xgb_strategy_sigs, "entry_prob", xgb_bt)
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] XGBoost error (non-fatal): {e}")
         if cancelled(): return
@@ -1115,6 +1600,8 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- LSTM --
         lstm_result = {"signals":None,"metrics":{"accuracy":None,"roc_auc":None},"lstm_reliable":False}
         lstm_bt     = None
+        lstm_strategy_sigs = None
+        lstm_diag   = {}
         try:
             import torch  # noqa — check availability
             if xgb_df_feat is not None and len(xgb_df_feat)>=SEQUENCE_LENGTH+TEST_DAYS+20:
@@ -1122,7 +1609,13 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 progress(62, "Training LSTM (2-layer, early-stopping, up to 80 epochs)…")
                 lstm_result = run_lstm_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
                 if lstm_result["signals"] is not None:
-                    lstm_bt = run_backtest(lstm_result["signals"])
+                    lstm_strategy_sigs = build_entry_exit_strategy_signals(
+                        lstm_result["signals"],
+                        prob_col="prob_good_entry",
+                        model_name="LSTM",
+                    )
+                    lstm_bt = run_backtest(lstm_strategy_sigs)
+                    lstm_diag = signal_diagnostics(lstm_strategy_sigs, "entry_prob", lstm_bt)
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] LSTM error (non-fatal): {e}")
         if cancelled(): return
@@ -1130,6 +1623,8 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- Ensemble --
         progress(78, "Combining XGBoost + LSTM into Ensemble (tiered signals)…")
         ens_sigs         = None; ens_bt = None
+        ens_strategy_sigs = None
+        ens_diag         = {}
         current_signal   = "HOLD"
         current_strength = "—"
         current_entry_probability = None
@@ -1140,14 +1635,25 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             lstm_auc_val = lstm_result.get("metrics", {}).get("roc_auc") or 0.5
             lstm_rel_val = bool(lstm_result.get("lstm_reliable", False))
 
-            if xs is not None and ls is not None and lstm_rel_val:
-                ens_sigs         = generate_ensemble_signals(
+            # Do not suppress the ensemble just because LSTM is weak. Instead,
+            # generate it and let generate_ensemble_signals() downweight LSTM.
+            # This keeps the Ensemble tab populated while still being honest
+            # about LSTM reliability in the UI.
+            if xs is not None and ls is not None:
+                ens_sigs = generate_ensemble_signals(
                     xs, ls, honest_fc,
                     lstm_auc=float(lstm_auc_val),
                     lstm_reliable=lstm_rel_val,
                 )
-                ens_bt           = run_backtest(ens_sigs)
-                last             = ens_sigs.iloc[-1]
+                ens_strategy_sigs = build_entry_exit_strategy_signals(
+                    ens_sigs,
+                    prob_col="ensemble_prob",
+                    model_name="Ensemble",
+                )
+                ens_bt = run_backtest(ens_strategy_sigs)
+                ens_diag = signal_diagnostics(ens_strategy_sigs, "entry_prob", ens_bt)
+
+                last = ens_sigs.iloc[-1]
                 current_signal   = str(last["signal"])
                 current_strength = str(last["strength"])
                 current_entry_probability = float(last["ensemble_prob"])
@@ -1156,37 +1662,39 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 last             = xs.iloc[-1]
                 current_signal   = str(last["signal"])
                 current_entry_probability = float(last["prob_good_entry"])
-                current_strength = "XGBoost only" if not lstm_rel_val else "—"
+                xgb_strength = str(last.get("strength", ""))
+                if current_signal == "HOLD" and xgb_strength in {"FLAT GATE", "LOW PROB"}:
+                    current_strength = xgb_strength
+                else:
+                    current_strength = "XGBoost only"
                 signal_source    = "xgboost_only"
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] Ensemble error (non-fatal): {e}")
 
-        # -- Prophet direction fallback --
-        if current_signal == "HOLD" and len(future_only):
-            # Use the last yhat from the volatile forecast for the direction
-            # check. Prophet fallback does not expose ML confidence because it
-            # is not backed by the XGBoost/LSTM entry classifier.
-            prophet_pct = (float(future_only["yhat"].iloc[-1]) - current_price) / current_price * 100
-            if prophet_pct > 0.5:
-                current_signal   = "BUY"
-                current_strength = "prophet_only"
-                current_entry_probability = None
-                signal_source    = "prophet_fallback"
-            elif prophet_pct < -0.5:
-                current_signal   = "SELL"
-                current_strength = "prophet_only"
-                current_entry_probability = None
-                signal_source    = "prophet_fallback"
+        # -- Prophet directional view, kept separate from the ML/ensemble signal --
+        # The old logic overwrote HOLD with Prophet-only BUY/SELL. That made the
+        # final signal look like Prophet dominated 90% of the time. Now Prophet's
+        # price-direction opinion is returned as a separate informational field.
+        prophet_direction_signal = "HOLD"
+        prophet_direction_change_pct = None
+        if len(future_only):
+            prophet_direction_change_pct = round(
+                (float(future_only["yhat"].iloc[-1]) - current_price) / current_price * 100,
+                2,
+            )
+            if prophet_direction_change_pct > 0.5:
+                prophet_direction_signal = "BUY"
+            elif prophet_direction_change_pct < -0.5:
+                prophet_direction_signal = "SELL"
 
         # -- Prophet-only backtest --
         progress(84, "Running Prophet strategy backtest…")
         prophet_bt: dict = {}
+        prophet_diag: dict = {}
         if prophet_val.get("backtest_series"):
-            sdf = pd.DataFrame(prophet_val["backtest_series"])
-            sdf["signal"] = sdf.apply(
-                lambda r: "BUY"  if r["predicted"]>r["actual"]*1.005
-                else ("SELL" if r["predicted"]<r["actual"]*0.995 else "HOLD"), axis=1)
-            prophet_bt = run_backtest(sdf.rename(columns={"actual":"Close"}))
+            prophet_strategy_sigs = build_prophet_strategy_signals(prophet_val["backtest_series"])
+            prophet_bt = run_backtest(prophet_strategy_sigs)
+            prophet_diag = signal_diagnostics(prophet_strategy_sigs, None, prophet_bt)
 
         # -- Assemble response --
         progress(90, "Assembling forecast arrays…")
@@ -1228,7 +1736,10 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                          .to_dict("records"))
 
         display_confidence = _display_signal_confidence(
-            current_signal, current_entry_probability, signal_source
+            current_signal, current_entry_probability, signal_source, current_strength
+        )
+        signal_reason = _build_signal_reason(
+            current_signal, current_strength, current_entry_probability, signal_source
         )
 
         result = {
@@ -1239,6 +1750,9 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             "signal_confidence": None if display_confidence is None else round(display_confidence, 3),
             "entry_probability": None if current_entry_probability is None else round(float(current_entry_probability), 3),
             "signal_source": signal_source,
+            "signal_reason": signal_reason,
+            "prophet_direction_signal": prophet_direction_signal,
+            "prophet_direction_change_pct": prophet_direction_change_pct,
             "target_pred": target_pred,
             "historical": historical, "in_sample_fit": in_sample,
             "forecast": forecast, "checkpoints": checkpoints,
@@ -1259,6 +1773,20 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 "xgboost":  xgb_bt.get("portfolio_timeline",[])  if xgb_bt  else [],
                 "lstm":     lstm_bt.get("portfolio_timeline",[])  if lstm_bt  else [],
                 "ensemble": ens_bt.get("portfolio_timeline",[])   if ens_bt  else [],
+            },
+            "signal_diagnostics": {
+                "prophet": prophet_diag,
+                "xgboost": xgb_diag,
+                "lstm": lstm_diag,
+                "ensemble": ens_diag,
+            },
+            "strategy_settings": {
+                "entry_threshold": round(CONFIDENCE_THRESHOLD, 3),
+                "exit_threshold": round(EXIT_PROB_THRESHOLD, 3),
+                "stop_loss_pct": round(STOP_LOSS_PCT * 100, 2),
+                "take_profit_pct": round(TAKE_PROFIT_PCT * 100, 2),
+                "max_hold_days": int(MAX_HOLD_DAYS),
+                "preferred_backtest_days": int(PREFERRED_BACKTEST_DAYS),
             },
             "ensemble_table": ens_table,
             "prophet_backtest_series": prophet_val.get("backtest_series",[]),
