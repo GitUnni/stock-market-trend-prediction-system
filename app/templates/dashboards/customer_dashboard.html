@@ -3704,21 +3704,32 @@
                                     🧠 LSTM — Sequence Pattern Classifier
                                     <span id="predLSTMReliabilityNote"></span>
                                 </div>
-                                <div class="predict-metrics-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px;">
+                                <div class="predict-metrics-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
                                     <div class="predict-metric-card">
-                                        <div class="predict-metric-label">Timing Accuracy</div>
+                                        <div class="predict-metric-label">Active Accuracy</div>
                                         <div class="predict-metric-value" id="predLSTMAccuracy">—</div>
-                                        <div class="predict-metric-desc">% correct entry/exit timing</div>
+                                        <div class="predict-metric-desc">Trade vs cash accuracy</div>
                                     </div>
                                     <div class="predict-metric-card">
-                                        <div class="predict-metric-label">ROC-AUC</div>
+                                        <div class="predict-metric-label">Balanced Acc.</div>
+                                        <div class="predict-metric-value" id="predLSTMBalAcc">—</div>
+                                        <div class="predict-metric-desc">Handles class imbalance</div>
+                                    </div>
+                                    <div class="predict-metric-card">
+                                        <div class="predict-metric-label">Active ROC-AUC</div>
                                         <div class="predict-metric-value" id="predLSTMAUC">—</div>
-                                        <div class="predict-metric-desc">&gt;0.55 useful · &gt;0.65 good</div>
+                                        <div class="predict-metric-desc">Trade setup ranking</div>
+                                    </div>
+                                    <div class="predict-metric-card">
+                                        <div class="predict-metric-label">Direction Acc.</div>
+                                        <div class="predict-metric-value" id="predLSTMDirAcc">—</div>
+                                        <div class="predict-metric-desc">LONG vs SHORT setup</div>
                                     </div>
                                 </div>
                                 <p style="font-size:11px;color:#aaa;padding:0 0 8px 0;">
-                                    ℹ️ XGBoost &amp; LSTM predict <em>timing quality</em> (good entry/exit points), not raw prices.
-                                    Accuracy = did the model correctly identify whether this was a good entry?
+                                    ℹ️ XGBoost predicts binary timing quality. The improved LSTM now predicts three classes:
+                                    <strong>CASH</strong>, <strong>LONG setup</strong>, and <strong>SHORT setup</strong>.
+                                    Active ROC-AUC checks whether LSTM can separate trade setups from cash days.
                                     Prophet predicts the actual price level.
                                 </p>
                             </div>
@@ -5920,8 +5931,18 @@ function renderPredictionResults(data) {
     const lm = data.lstm_metrics || {};
     document.getElementById('predLSTMAccuracy').textContent = lm.accuracy !== null && lm.accuracy !== undefined
         ? lm.accuracy.toFixed(1) + '%' : 'N/A';
+    const lstmBalAccEl = document.getElementById('predLSTMBalAcc');
+    if (lstmBalAccEl) {
+        lstmBalAccEl.textContent = lm.balanced_accuracy !== null && lm.balanced_accuracy !== undefined
+            ? lm.balanced_accuracy.toFixed(1) + '%' : 'N/A';
+    }
     document.getElementById('predLSTMAUC').textContent      = lm.roc_auc  !== null && lm.roc_auc  !== undefined
         ? lm.roc_auc.toFixed(4) : 'N/A';
+    const lstmDirAccEl = document.getElementById('predLSTMDirAcc');
+    if (lstmDirAccEl) {
+        lstmDirAccEl.textContent = lm.direction_accuracy !== null && lm.direction_accuracy !== undefined
+            ? lm.direction_accuracy.toFixed(1) + '%' : 'N/A';
+    }
 
     const rlNote = document.getElementById('predLSTMReliabilityNote');
     if (lm.accuracy === null) {
