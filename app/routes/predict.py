@@ -117,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:v5:{symbol.upper()}:{target_date}"
+    return f"predict_result:v6:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -229,6 +229,25 @@ MAX_HOLD_DAYS           = max(5, min(252, MAX_HOLD_DAYS))
 FLAT_TREND_PCT       = float(os.getenv("PREDICTION_FLAT_TREND_PCT", "0.002"))
 LSTM_MIN_AUC         = float(os.getenv("PREDICTION_LSTM_MIN_AUC", "0.58"))
 LSTM_MIN_ACCURACY    = float(os.getenv("PREDICTION_LSTM_MIN_ACCURACY", "55.0"))
+
+# LSTM v2 tuning knobs. The previous single 30-day LSTM was often stuck near
+# 50% probability. This version trains a small sequence ensemble over several
+# lookback windows, chooses/weights candidates by validation AUC only, and
+# optionally flips probability direction when the validation set proves the
+# learned ranking is inverted. The final reported ROC-AUC is still computed on
+# the untouched held-out test window.
+LSTM_SEQUENCE_LENGTHS = [int(x.strip()) for x in os.getenv("PREDICTION_LSTM_SEQUENCES", "15,30,45").split(",") if x.strip().isdigit()]
+LSTM_SEQUENCE_LENGTHS = sorted({x for x in LSTM_SEQUENCE_LENGTHS if 5 <= x <= 90}) or [SEQUENCE_LENGTH]
+LSTM_MAX_EPOCHS       = int(os.getenv("PREDICTION_LSTM_MAX_EPOCHS", "70"))
+LSTM_PATIENCE         = int(os.getenv("PREDICTION_LSTM_PATIENCE", "10"))
+LSTM_SEEDS            = [int(x.strip()) for x in os.getenv("PREDICTION_LSTM_SEEDS", "42,99").split(",") if x.strip().lstrip("-").isdigit()]
+LSTM_SEEDS            = LSTM_SEEDS[:3] or [42]
+LSTM_MIN_VAL_AUC      = float(os.getenv("PREDICTION_LSTM_MIN_VAL_AUC", "0.55"))
+LSTM_INVERT_MARGIN    = float(os.getenv("PREDICTION_LSTM_INVERT_MARGIN", "0.03"))
+LSTM_MAX_EPOCHS       = max(20, min(160, LSTM_MAX_EPOCHS))
+LSTM_PATIENCE         = max(5, min(30, LSTM_PATIENCE))
+LSTM_MIN_VAL_AUC      = max(0.50, min(0.75, LSTM_MIN_VAL_AUC))
+LSTM_INVERT_MARGIN    = max(0.00, min(0.20, LSTM_INVERT_MARGIN))
 
 REGRESSOR_COLS = ["rsi","macd","bb_width","vol_change","daily_return","sma_20","sma_50"]
 
@@ -815,118 +834,379 @@ def run_xgboost_pipeline(xgb_df: pd.DataFrame, test_days: int,
 # -- LSTM pipeline --
 def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
                       honest_fc: pd.DataFrame) -> dict:
-    """Train LSTM, return signals + metrics. Gracefully skips if torch absent."""
+    """
+    Train an improved LSTM sequence ensemble and return signals + metrics.
+
+    Changes from the old LSTM:
+      1. Uses the full technical-feature set instead of a small hand-picked subset.
+      2. Trains several lookback windows (default: 15, 30, 45 days).
+      3. Uses chronological validation AUC for early stopping, not only BCE loss.
+      4. Handles class imbalance with a sampler + capped positive weighting.
+      5. Calibrates probabilities on validation data.
+      6. If validation AUC is clearly below 0.5, flips the probability direction
+         using validation evidence only. This catches inverted learned rankings.
+      7. Averages the best validation candidates for a more stable test signal.
+
+    Important: no held-out test labels are used for model selection, calibration,
+    probability flipping, or candidate weighting. Test ROC-AUC is computed only
+    after the final probability stream is selected.
+    """
     try:
+        import random
         import torch, torch.nn as nn, torch.optim as optim
-        from torch.utils.data import Dataset, DataLoader
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.metrics import accuracy_score, roc_auc_score
+        from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+        from sklearn.preprocessing import RobustScaler, StandardScaler
+        from sklearn.metrics import accuracy_score, roc_auc_score, log_loss
+        from sklearn.linear_model import LogisticRegression
     except ImportError as e:
         logger.warning(f"[PREDICT] torch/sklearn unavailable: {e}")
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None},
-                "lstm_reliable": False}
+        return {
+            "signals": None,
+            "metrics": {"accuracy": None, "roc_auc": None},
+            "lstm_reliable": False,
+        }
 
-    device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    feat_cols = [c for c in LSTM_FEATURE_COLS if c in xgb_df.columns]
-    split     = len(xgb_df) - test_days
+    def _safe_auc(y_true, prob) -> float:
+        y_true = np.asarray(y_true).astype(int)
+        prob = np.asarray(prob, dtype=float)
+        try:
+            if len(np.unique(y_true)) < 2:
+                return 0.5
+            return float(roc_auc_score(y_true, prob))
+        except Exception:
+            return 0.5
 
-    tr_raw = xgb_df.iloc[:split][feat_cols].values
-    te_raw = xgb_df.iloc[split:][feat_cols].values
-    tr_tgt = xgb_df.iloc[:split]["target"].values
-    te_tgt = xgb_df.iloc[split:]["target"].values
+    def _safe_logloss(y_true, prob) -> float:
+        prob = np.asarray(prob, dtype=float)
+        prob = np.clip(prob, 1e-5, 1.0 - 1e-5)
+        try:
+            return float(log_loss(y_true, prob, labels=[0, 1]))
+        except Exception:
+            return float("inf")
 
-    scaler   = StandardScaler()
-    tr_sc    = scaler.fit_transform(tr_raw); te_sc = scaler.transform(te_raw)
-    comb_sc  = np.vstack([tr_sc, te_sc])
-    comb_tgt = np.concatenate([tr_tgt, te_tgt])
+    def _set_seed(seed: int):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        try:
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+        except Exception:
+            pass
 
-    SEQ = SEQUENCE_LENGTH
-    def make_seq(feats, tgts, L):
-        X, y = [], []
-        for i in range(L, len(feats)): X.append(feats[i-L:i]); y.append(tgts[i])
-        return np.array(X,dtype=np.float32), np.array(y,dtype=np.float32)
+    if xgb_df is None or len(xgb_df) < test_days + 100:
+        return {
+            "signals": None,
+            "metrics": {"accuracy": None, "roc_auc": None},
+            "lstm_reliable": False,
+        }
 
-    X_tr, y_tr   = make_seq(tr_sc, tr_tgt, SEQ)
-    X_all, y_all = make_seq(comb_sc, comb_tgt, SEQ)
-    X_te = X_all[-test_days:]; y_te = y_all[-test_days:]
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    lstm_reliable = len(X_tr) >= 500
-    vsplit  = int(len(X_tr)*0.85)
-    X_val, y_val = X_tr[vsplit:], y_tr[vsplit:]
-    X_tr,  y_tr  = X_tr[:vsplit], y_tr[:vsplit]
-    n_feat  = len(feat_cols)
+    # Use all available engineered technical/Prophet features. The previous
+    # compact feature list was too weak for LSTM and frequently produced nearly
+    # constant 49-52% probabilities.
+    candidate_cols = []
+    for col in list(LSTM_FEATURE_COLS) + list(XGB_ALL_FEATURES):
+        if col not in candidate_cols and col in xgb_df.columns:
+            candidate_cols.append(col)
+    feat_cols = candidate_cols
+    if not feat_cols:
+        return {
+            "signals": None,
+            "metrics": {"accuracy": None, "roc_auc": None},
+            "lstm_reliable": False,
+        }
 
-    class LSTMNet(nn.Module):
-        def __init__(self, nf, h=64, layers=2, drop=0.4):
+    split = len(xgb_df) - test_days
+    raw = xgb_df[feat_cols].replace([np.inf, -np.inf], np.nan).copy()
+    raw = raw.ffill().bfill().fillna(0.0)
+    tgt = xgb_df["target"].astype(int).values
+
+    tr_raw = raw.iloc[:split].values.astype(np.float32)
+    te_raw = raw.iloc[split:].values.astype(np.float32)
+    tr_tgt = tgt[:split].astype(int)
+    te_tgt = tgt[split:].astype(int)
+
+    try:
+        scaler = RobustScaler(quantile_range=(5.0, 95.0))
+        tr_sc = scaler.fit_transform(tr_raw)
+        te_sc = scaler.transform(te_raw)
+    except Exception:
+        scaler = StandardScaler()
+        tr_sc = scaler.fit_transform(tr_raw)
+        te_sc = scaler.transform(te_raw)
+
+    tr_sc = np.clip(tr_sc, -8, 8).astype(np.float32)
+    te_sc = np.clip(te_sc, -8, 8).astype(np.float32)
+    comb_sc = np.vstack([tr_sc, te_sc]).astype(np.float32)
+    comb_tgt = np.concatenate([tr_tgt, te_tgt]).astype(int)
+
+    class SeqDS(Dataset):
+        def __init__(self, X, y):
+            self.X = torch.tensor(X, dtype=torch.float32)
+            self.y = torch.tensor(y, dtype=torch.float32)
+        def __len__(self):
+            return len(self.X)
+        def __getitem__(self, i):
+            return self.X[i], self.y[i]
+
+    class AttentionLSTM(nn.Module):
+        def __init__(self, nf: int, hidden: int = 48, drop: float = 0.25):
             super().__init__()
-            self.lstm = nn.LSTM(nf, h, layers, batch_first=True,
-                                dropout=drop if layers>1 else 0)
-            self.fc   = nn.Sequential(
-                nn.Linear(h,64),nn.ReLU(),nn.Dropout(drop),
-                nn.Linear(64,32),nn.ReLU(),nn.Dropout(drop/2),nn.Linear(32,1))
+            self.input_norm = nn.LayerNorm(nf)
+            self.lstm = nn.LSTM(
+                input_size=nf,
+                hidden_size=hidden,
+                num_layers=1,
+                batch_first=True,
+                bidirectional=True,
+            )
+            self.attn = nn.Sequential(
+                nn.Linear(hidden * 2, hidden),
+                nn.Tanh(),
+                nn.Linear(hidden, 1),
+            )
+            self.head = nn.Sequential(
+                nn.LayerNorm(hidden * 2),
+                nn.Dropout(drop),
+                nn.Linear(hidden * 2, 64),
+                nn.GELU(),
+                nn.Dropout(drop),
+                nn.Linear(64, 1),
+            )
         def forward(self, x):
-            o, _ = self.lstm(x); return self.fc(o[:,-1,:]).squeeze(1)
-        def predict_proba(self, x):
-            with torch.no_grad(): return torch.sigmoid(self.forward(x))
+            x = self.input_norm(x)
+            out, _ = self.lstm(x)
+            weights = torch.softmax(self.attn(out).squeeze(-1), dim=1).unsqueeze(-1)
+            pooled = torch.sum(out * weights, dim=1)
+            return self.head(pooled).squeeze(1)
 
-    net  = LSTMNet(n_feat).to(device)
-    posw = torch.tensor([(y_tr==0).sum()/max((y_tr==1).sum(),1)],
-                         dtype=torch.float32).to(device)
-    crit = nn.BCEWithLogitsLoss(pos_weight=posw)
-    opt  = optim.Adam(net.parameters(), lr=0.0005, weight_decay=1e-4)
-    sch  = optim.lr_scheduler.ReduceLROnPlateau(opt,"min",patience=7,factor=0.5)
+    def make_seq(feats: np.ndarray, tgts: np.ndarray, L: int):
+        X, y = [], []
+        for i in range(L, len(feats)):
+            X.append(feats[i - L:i])
+            y.append(tgts[i])
+        if not X:
+            return np.empty((0, L, feats.shape[1]), dtype=np.float32), np.empty((0,), dtype=np.int64)
+        return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int64)
 
-    class DS(Dataset):
-        def __init__(self,X,y): self.X=torch.tensor(X); self.y=torch.tensor(y)
-        def __len__(self): return len(self.X)
-        def __getitem__(self,i): return self.X[i], self.y[i]
+    def predict_probs(model, X, batch_size: int = 256):
+        if len(X) == 0:
+            return np.asarray([], dtype=float)
+        loader = DataLoader(SeqDS(X, np.zeros(len(X))), batch_size=batch_size, shuffle=False)
+        probs = []
+        model.eval()
+        with torch.no_grad():
+            for xb, _ in loader:
+                logits = model(xb.to(device))
+                probs.extend(torch.sigmoid(logits).detach().cpu().numpy())
+        return np.asarray(probs, dtype=float)
 
-    tr_ld = DataLoader(DS(X_tr, y_tr),   batch_size=64, shuffle=True)   # shuffle=True for better generalisation
-    va_ld = DataLoader(DS(X_val, y_val), batch_size=64, shuffle=False)
-    te_ld = DataLoader(DS(X_te, y_te),   batch_size=64, shuffle=False)
+    def train_one_candidate(seq_len: int, seed: int) -> Optional[dict]:
+        _set_seed(seed)
+        X_train_all, y_train_all = make_seq(tr_sc, tr_tgt, seq_len)
+        X_all, y_all = make_seq(comb_sc, comb_tgt, seq_len)
+        if len(X_train_all) < 300 or len(X_all) < test_days:
+            return None
 
-    best_val, best_w, pat, PATIENCE = float("inf"), None, 0, 15
-    for epoch in range(80):
-        net.train()
-        for Xb, yb in tr_ld:
-            Xb, yb = Xb.to(device), yb.to(device)
-            opt.zero_grad(); loss = crit(net(Xb), yb)
-            loss.backward(); nn.utils.clip_grad_norm_(net.parameters(), 1.0); opt.step()
+        X_test = X_all[-test_days:]
+        y_test = y_all[-test_days:].astype(int)
+
+        # Chronological validation split. Keep enough validation rows so AUC is
+        # less jumpy on rare-entry labels.
+        val_size = max(90, int(len(X_train_all) * 0.18))
+        val_size = min(val_size, max(40, len(X_train_all) // 3))
+        train_cut = len(X_train_all) - val_size
+        if train_cut < 200:
+            return None
+
+        X_train, y_train = X_train_all[:train_cut], y_train_all[:train_cut].astype(int)
+        X_val, y_val = X_train_all[train_cut:], y_train_all[train_cut:].astype(int)
+        if len(np.unique(y_train)) < 2:
+            return None
+
+        n_feat = X_train.shape[-1]
+        net = AttentionLSTM(n_feat).to(device)
+
+        pos = max(int((y_train == 1).sum()), 1)
+        neg = max(int((y_train == 0).sum()), 1)
+        # Capped square-root weighting avoids the old LSTM overcompensating for
+        # rare labels and collapsing toward an inverted/near-constant output.
+        pos_weight_val = float(np.clip(np.sqrt(neg / pos), 1.0, 6.0))
+        criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_val], dtype=torch.float32).to(device))
+        opt = optim.AdamW(net.parameters(), lr=8e-4, weight_decay=2e-4)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", patience=3, factor=0.55)
+
+        # Balanced sampler improves minority-class exposure without needing an
+        # excessively large pos_weight.
+        class_counts = np.bincount(y_train.astype(int), minlength=2).astype(float)
+        sample_weights = np.where(y_train == 1, 1.0 / max(class_counts[1], 1.0), 1.0 / max(class_counts[0], 1.0))
+        sampler = WeightedRandomSampler(
+            weights=torch.tensor(sample_weights, dtype=torch.double),
+            num_samples=len(sample_weights),
+            replacement=True,
+        )
+        train_loader = DataLoader(SeqDS(X_train, y_train), batch_size=64, sampler=sampler)
+
+        best_state = None
+        best_auc = -1.0
+        best_loss = float("inf")
+        patience = 0
+
+        for _epoch in range(LSTM_MAX_EPOCHS):
+            net.train()
+            for xb, yb in train_loader:
+                xb = xb.to(device)
+                yb = yb.to(device)
+                opt.zero_grad()
+                loss = criterion(net(xb), yb)
+                loss.backward()
+                nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                opt.step()
+
+            val_probs_raw = predict_probs(net, X_val)
+            val_auc_raw = _safe_auc(y_val, val_probs_raw)
+            val_loss = _safe_logloss(y_val, val_probs_raw)
+            scheduler.step(val_auc_raw)
+
+            # Prefer AUC improvement; use validation loss as tie-breaker.
+            improved = (val_auc_raw > best_auc + 1e-4) or (
+                abs(val_auc_raw - best_auc) <= 1e-4 and val_loss < best_loss - 1e-4
+            )
+            if improved:
+                best_auc = val_auc_raw
+                best_loss = val_loss
+                best_state = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
+                patience = 0
+            else:
+                patience += 1
+            if patience >= LSTM_PATIENCE:
+                break
+
+        if best_state is not None:
+            net.load_state_dict(best_state)
         net.eval()
-        vl = float(np.mean([crit(net(Xb.to(device)), yb.to(device)).item()
-                              for Xb, yb in va_ld]))
-        sch.step(vl)
-        if vl < best_val:
-            best_val = vl; best_w = {k:v.clone() for k,v in net.state_dict().items()}; pat = 0
-        else: pat += 1
-        if pat >= PATIENCE: break
 
-    net.load_state_dict(best_w); net.eval()
-    probs_all, lbls_all = [], []
-    with torch.no_grad():
-        for Xb, yb in te_ld:
-            probs_all.extend(net.predict_proba(Xb.to(device)).cpu().numpy())
-            lbls_all.extend(yb.numpy().astype(int))
+        val_probs = predict_probs(net, X_val)
+        test_probs = predict_probs(net, X_test)
+        val_auc = _safe_auc(y_val, val_probs)
+        inverted = False
 
-    all_probs = np.array(probs_all); all_lbls = np.array(lbls_all)
-    acc = float(accuracy_score(all_lbls, (all_probs>=0.5).astype(int))*100)
-    try:    auc = float(roc_auc_score(all_lbls, all_probs))
-    except: auc = 0.5
+        # Use validation only to detect a consistently inverted ranking. This is
+        # often what repeated test AUC < 0.5 indicates.
+        if val_auc < (0.5 - LSTM_INVERT_MARGIN):
+            val_probs = 1.0 - val_probs
+            test_probs = 1.0 - test_probs
+            val_auc = _safe_auc(y_val, val_probs)
+            inverted = True
 
-    # Sequence count alone is not enough. A weak validation AUC can drag the
-    # ensemble down, so mark LSTM reliable only when it clears performance gates.
+        # Probability calibration for better threshold behaviour. AUC itself is
+        # rank-based, but calibration helps the ensemble threshold act sanely.
+        calibrated = False
+        if len(np.unique(y_val)) == 2:
+            try:
+                lr = LogisticRegression(max_iter=500, solver="lbfgs")
+                lr.fit(val_probs.reshape(-1, 1), y_val)
+                val_probs = lr.predict_proba(val_probs.reshape(-1, 1))[:, 1]
+                test_probs = lr.predict_proba(test_probs.reshape(-1, 1))[:, 1]
+                calibrated = True
+            except Exception as exc:
+                logger.debug(f"[PREDICT] LSTM calibration skipped: {exc}")
+
+        return {
+            "seq_len": seq_len,
+            "seed": seed,
+            "val_auc": round(float(_safe_auc(y_val, val_probs)), 4),
+            "val_logloss": round(float(_safe_logloss(y_val, val_probs)), 4),
+            "test_probs": np.asarray(test_probs, dtype=float),
+            "test_labels": y_test,
+            "inverted": inverted,
+            "calibrated": calibrated,
+        }
+
+    candidates = []
+    for seq_len in LSTM_SEQUENCE_LENGTHS:
+        if split <= seq_len + 300:
+            continue
+        for seed in LSTM_SEEDS:
+            try:
+                cand = train_one_candidate(seq_len, seed)
+                if cand is not None and len(cand["test_probs"]) == test_days:
+                    candidates.append(cand)
+            except Exception as exc:
+                logger.warning(f"[PREDICT] LSTM candidate failed (seq={seq_len}, seed={seed}): {exc}")
+
+    if not candidates:
+        logger.warning("[PREDICT] LSTM produced no valid candidates")
+        return {
+            "signals": None,
+            "metrics": {"accuracy": None, "roc_auc": None},
+            "lstm_reliable": False,
+        }
+
+    # Select/average by validation AUC only. Take all candidates near the best so
+    # one lucky seed does not dominate the final probability stream.
+    best_val_auc = max(c["val_auc"] for c in candidates)
+    selected = [c for c in candidates if c["val_auc"] >= max(0.50, best_val_auc - 0.025)]
+    selected = sorted(selected, key=lambda c: (c["val_auc"], -c["val_logloss"]), reverse=True)[:4]
+
+    weights = np.asarray([max(c["val_auc"] - 0.49, 0.01) for c in selected], dtype=float)
+    weights = weights / weights.sum()
+    test_probs = np.sum([w * c["test_probs"] for w, c in zip(weights, selected)], axis=0)
+    test_probs = np.clip(test_probs, 0.0, 1.0)
+    test_labels = selected[0]["test_labels"].astype(int)
+
+    acc = float(accuracy_score(test_labels, (test_probs >= 0.5).astype(int)) * 100.0)
+    auc = _safe_auc(test_labels, test_probs)
+
+    # Reliability is still based on held-out test performance, but now also
+    # requires a reasonable validation AUC so the ensemble does not trust a lucky
+    # test-window result.
+    has_enough_sequences = bool(split - max(LSTM_SEQUENCE_LENGTHS) >= 500)
     lstm_reliable = bool(
-        lstm_reliable
+        has_enough_sequences
         and auc >= LSTM_MIN_AUC
         and acc >= LSTM_MIN_ACCURACY
+        and best_val_auc >= LSTM_MIN_VAL_AUC
     )
 
     te_slice = xgb_df.iloc[split:].copy()
-    sigs = _hierarchical_signals(all_probs, te_slice["date"].values,
+    sigs = _hierarchical_signals(test_probs, te_slice["date"].values,
                                   honest_fc, te_slice["Close"].values)
-    return {"signals": sigs, "metrics": {"accuracy": round(acc,1),
-                                          "roc_auc":  round(auc,4)},
-            "lstm_reliable": lstm_reliable}
+
+    selected_summary = [
+        {
+            "seq_len": int(c["seq_len"]),
+            "seed": int(c["seed"]),
+            "val_auc": float(c["val_auc"]),
+            "inverted": bool(c["inverted"]),
+            "calibrated": bool(c["calibrated"]),
+        }
+        for c in selected
+    ]
+
+    logger.info(
+        "[PREDICT] LSTM v2 selected=%s test_auc=%.4f test_acc=%.1f reliable=%s",
+        selected_summary,
+        auc,
+        acc,
+        lstm_reliable,
+    )
+
+    return {
+        "signals": sigs,
+        "metrics": {
+            "accuracy": round(acc, 1),
+            "roc_auc": round(float(auc), 4),
+            "validation_auc": round(float(best_val_auc), 4),
+            "selected_candidates": selected_summary,
+            "sequence_lengths": LSTM_SEQUENCE_LENGTHS,
+        },
+        "lstm_reliable": lstm_reliable,
+    }
 
 # -- Ensemble --
 
@@ -941,14 +1221,15 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
         columns={"prob_good_entry":"lstm_prob"})
     df  = xgb.merge(lst, on="date", how="inner")
 
-    # Adaptive weighting: when LSTM validation is weak, reduce its influence.
-    # The caller may also choose XGBoost-only when LSTM is below reliability gates.
-    if not lstm_reliable or lstm_auc < 0.60:
-        eff_xgb  = min(XGB_WEIGHT + 0.15, 0.85)
-        eff_lstm = 1.0 - eff_xgb
+    # Adaptive weighting: if LSTM is still weak after the v2 improvements,
+    # exclude it from the ensemble instead of letting a bad sequence model drag
+    # down a strong XGBoost signal. When LSTM clears reliability gates, restore
+    # the configured XGBoost/LSTM weights.
+    if not lstm_reliable or lstm_auc < LSTM_MIN_AUC:
+        eff_xgb, eff_lstm = 1.0, 0.0
         logger.info(
-            f"[PREDICT] LSTM AUC={lstm_auc:.4f} unreliable/weak — "
-            f"weights adjusted to XGB={eff_xgb:.2f} LSTM={eff_lstm:.2f}"
+            f"[PREDICT] LSTM AUC={lstm_auc:.4f} unreliable — "
+            "using XGBoost-only ensemble weight for this run"
         )
     else:
         eff_xgb, eff_lstm = XGB_WEIGHT, LSTM_WEIGHT
@@ -2205,7 +2486,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             import torch  # noqa — check availability
             if xgb_df_feat is not None and len(xgb_df_feat)>=SEQUENCE_LENGTH+TEST_DAYS+20:
                 if cancelled(): return
-                progress(62, "Training LSTM (2-layer, early-stopping, up to 80 epochs)…")
+                progress(62, "Training improved LSTM sequence ensemble (multi-lookback + validation AUC)…")
                 lstm_result = run_lstm_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
                 if lstm_result["signals"] is not None:
                     lstm_strategy_sigs = build_entry_exit_strategy_signals(
