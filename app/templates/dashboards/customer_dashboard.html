@@ -2135,6 +2135,41 @@
         line-height: 1.45;
     }
 
+
+
+    .bt-mode-toggle {
+        display: inline-flex;
+        gap: 6px;
+        padding: 4px;
+        background: rgba(236,240,243,0.74);
+        border: 1px solid rgba(209,217,230,0.70);
+        border-radius: 999px;
+        box-shadow: inset 2px 2px 5px rgba(209,217,230,0.75), inset -2px -2px 5px rgba(255,255,255,0.85);
+    }
+
+    .bt-mode-btn {
+        border: none;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 11.5px;
+        font-weight: 700;
+        padding: 7px 12px;
+        transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+    }
+
+    .bt-mode-btn:hover {
+        color: var(--accent);
+        background: rgba(255,255,255,0.45);
+    }
+
+    .bt-mode-btn.active {
+        background: rgba(255,255,255,0.88);
+        color: var(--accent);
+        box-shadow: 2px 2px 6px rgba(209,217,230,0.85), -2px -2px 6px rgba(255,255,255,0.90);
+    }
+
     .predict-info-overlay {
         display: none;
         position: fixed;
@@ -3701,11 +3736,16 @@
                             <div style="padding:20px 24px 24px;">
                                 <div class="predict-title-row">
                                     <div class="predict-metrics-title">📊 Simulated Backtest (₹1,00,000 initial capital)</div>
-                                    <button type="button" class="predict-info-btn" onclick="openBacktestInfo()" title="Explain this backtest table">i</button>
+                                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+                                        <div class="bt-mode-toggle" aria-label="Backtest mode">
+                                            <button type="button" class="bt-mode-btn active" data-bt-mode="long_only" onclick="switchBacktestMode('long_only')">Long-only</button>
+                                            <button type="button" class="bt-mode-btn" data-bt-mode="long_short" onclick="switchBacktestMode('long_short')">Long/Short</button>
+                                        </div>
+                                        <button type="button" class="predict-info-btn" onclick="openBacktestInfo()" title="Explain this backtest table">i</button>
+                                    </div>
                                 </div>
                                 <div class="beginner-note" id="backtestBeginnerNote">
-                                    A backtest asks: <strong>if this model's BUY/SELL rules had been used in the last test window, what would ₹1,00,000 look like now?</strong>
-                                    If a model shows <strong>No trades</strong>, it means the model stayed in cash because its signal rules were not triggered strongly enough.
+                                    <span id="backtestModeExplanation">A long-only backtest asks: <strong>if this model bought only on BUY signals and exited/avoided on SELL signals, what would ₹1,00,000 look like now?</strong></span>
                                 </div>
                                 <table class="backtest-compare-table">
                                     <thead><tr>
@@ -3724,12 +3764,12 @@
                                     <div class="predict-metrics-title">🧭 Signal Diagnostics</div>
                                 </div>
                                 <div class="beginner-note">
-                                    These counts explain why a model traded or stayed idle. XGBoost, LSTM and Ensemble now act as <strong>entry-quality</strong> models; exits are handled separately by probability drop, trend change, stop-loss, take-profit and max holding-days rules.
+                                    <span id="diagnosticsModeExplanation">These counts explain why a model traded or stayed idle. In long-only mode, BUY enters a position and SELL exits. XGBoost, LSTM and Ensemble act as <strong>entry-quality</strong> models; exits are handled separately by probability drop, trend change, stop-loss, take-profit and max holding-days rules.</span>
                                 </div>
                                 <div class="signal-diagnostics-grid" id="signalDiagnosticsGrid"></div>
 
                                 <p style="font-size:11px;color:#aaa;margin-top:10px;">
-                                    ⚠️ Backtest on ~<span id="predTestDaysNote">252</span>-day held-out test period when enough history exists. No slippage, taxes, or transaction costs modelled. Long-only simulation: entry-quality BUY, separate exit rules. Not financial advice.
+                                    ⚠️ Backtest on ~<span id="predTestDaysNote">252</span>-day held-out test period when enough history exists. No slippage, taxes, borrowing cost, margin rules, or transaction costs modelled. Use Long/Short only as a learning simulation. Not financial advice.
                                 </p>
                             </div>
                         </div>
@@ -3970,6 +4010,8 @@
     let currentTab = 'portfolio';
     let currentStock = null;
     let currentPeriod = '1d';
+    let currentPredictionResult = null;
+    let currentBacktestMode = 'long_only';
     let stockChart = null;
     let portfolioHoldings = [];  // Store holdings globally
     let currentQuoteData = null;  // Store current quote data for accurate 1D calculations
@@ -5698,14 +5740,16 @@ function openBacktestInfo() {
         'How to read the simulated backtest',
         'This table is a simple historical simulation, not a guarantee of future profit.',
         [
+            {title:'Long-only mode', text:'BUY opens a normal long position. SELL only exits/avoids. If the model says SELL while no position is open, the strategy stays in cash.'},
+            {title:'Long/Short mode', text:'BUY opens a long position and SELL opens a short position. A short position gains when price falls and loses when price rises. This is useful for understanding bearish signals, but it ignores borrowing cost, margin rules and execution limits.'},
             {title:'Return %', text:'How much ₹1,00,000 would have gained or lost during the held-out test window. 12% means ₹1,00,000 became roughly ₹1,12,000.'},
-            {title:'Entry-quality model', text:'XGBoost, LSTM and Ensemble now decide only whether the setup is good enough to enter. They are not forced to predict every BUY and SELL directly.'},
-            {title:'Separate exit rules', text:'After a BUY, the strategy exits if probability falls below the exit threshold, Prophet trend turns flat/down, stop-loss hits, take-profit hits, or max holding days is reached.'},
+            {title:'Entry-quality model', text:'XGBoost, LSTM and Ensemble decide whether the setup is strong enough to enter. They are not forced to trade every day.'},
+            {title:'Separate exit rules', text:'The strategy can exit because probability drops, trend changes, stop-loss hits, take-profit hits, or max holding days is reached.'},
             {title:'Sharpe', text:'Return adjusted for volatility. Higher is better, but it is unreliable when there are only a few completed trades.'},
             {title:'Max DD %', text:'Maximum drawdown: the biggest fall from a previous portfolio high. Lower is safer.'},
             {title:'Win Rate', text:'Percentage of completed trades that ended in profit. This is meaningful only when there are enough trades.'},
-            {title:'Trades', text:'Number of completed BUY → SELL cycles. A low count means the strategy is still conservative or the test window had few qualifying setups.'},
-            {title:'Meaning', text:'Beat B&H means the strategy outperformed simply buying and holding. Low Sample means there were too few trades to trust the statistic.'}
+            {title:'Trades', text:'Number of completed trade cycles. Low Sample means there were too few trades to trust the statistic.'},
+            {title:'Meaning', text:'Outperformed B&H means the strategy beat simply buying and holding. Lost Less means both lost money, but the strategy lost less than Buy & Hold.'}
         ]
     );
 }
@@ -5730,6 +5774,10 @@ function openEnsembleInfo() {
 /* Main render function */
 function renderPredictionResults(data) {
     showPredictPanel(false);
+    currentPredictionResult = data;
+    currentBacktestMode = 'long_only';
+    updateBacktestModeButtons();
+    updateBacktestModeText();
 
     /* Header */
     document.getElementById('predictHeaderSub').textContent =
@@ -5942,11 +5990,62 @@ function renderForecastChart(data) {
     }, {responsive:true});
 }
 
+/* Backtest mode helpers */
+function getBacktestPayload(data) {
+    const mode = currentBacktestMode || 'long_only';
+    const btModes = data.backtest_modes || {};
+    const tlModes = data.backtest_timelines_modes || {};
+    const diagModes = data.signal_diagnostics_modes || {};
+    return {
+        mode,
+        bt: btModes[mode] || data.backtest || {},
+        tl: tlModes[mode] || data.backtest_timelines || {},
+        diag: diagModes[mode] || data.signal_diagnostics || {},
+    };
+}
+
+function updateBacktestModeButtons() {
+    document.querySelectorAll('.bt-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.btMode === currentBacktestMode);
+    });
+}
+
+function updateBacktestModeText() {
+    const modeEl = document.getElementById('backtestModeExplanation');
+    const diagEl = document.getElementById('diagnosticsModeExplanation');
+    const isLS = currentBacktestMode === 'long_short';
+
+    if (modeEl) {
+        modeEl.innerHTML = isLS
+            ? `A long/short backtest asks: <strong>if BUY opened a long position and SELL opened a short position, what would ₹1,00,000 look like now?</strong> This is useful for understanding bearish signals, but it is only a simplified simulation.`
+            : `A long-only backtest asks: <strong>if this model bought only on BUY signals and exited/avoided on SELL signals, what would ₹1,00,000 look like now?</strong>`;
+    }
+
+    if (diagEl) {
+        diagEl.innerHTML = isLS
+            ? `These counts explain why a model traded or stayed idle. In long/short mode, <strong>BUY = long</strong> and <strong>SELL = short</strong>. CASH exits a position. This makes bearish signals visible in the backtest instead of showing only Stayed Cash.`
+            : `These counts explain why a model traded or stayed idle. In long-only mode, BUY enters a position and SELL exits. XGBoost, LSTM and Ensemble act as <strong>entry-quality</strong> models; exits are handled separately by probability drop, trend change, stop-loss, take-profit and max holding-days rules.`;
+    }
+}
+
+function switchBacktestMode(mode) {
+    currentBacktestMode = mode === 'long_short' ? 'long_short' : 'long_only';
+    updateBacktestModeButtons();
+    updateBacktestModeText();
+    if (currentPredictionResult) {
+        renderBacktestChart(currentPredictionResult);
+        renderBacktestTable(currentPredictionResult);
+        renderSignalDiagnostics(currentPredictionResult);
+    }
+}
+
 /* Backtest portfolio chart */
 function renderBacktestChart(data) {
     if (typeof Plotly === 'undefined') return;
-    const tl = data.backtest_timelines || {};
-    const bt = data.backtest || {};
+    const payload = getBacktestPayload(data);
+    const tl = payload.tl || {};
+    const bt = payload.bt || {};
+    const isLS = payload.mode === 'long_short';
     const traces = [];
 
     const modelMeta = [
@@ -5967,8 +6066,6 @@ function renderBacktestChart(data) {
         const noTrades = Number(stats.n_trades || 0) === 0;
         if (noTrades) inactiveModels.push(meta.name);
 
-        // When several no-trade strategies sit exactly at ₹1,00,000, they overlap.
-        // Wider translucent lines make the purple/green/red baselines visible without changing data.
         const inactiveWidth = {xgboost:7, lstm:5, ensemble:3.2, prophet:2.2};
 
         if (!bhAdded && series.length) {
@@ -5999,7 +6096,9 @@ function renderBacktestChart(data) {
     if (noteEl) {
         if (inactiveModels.length) {
             noteEl.style.display = 'block';
-            noteEl.innerHTML = `ℹ️ ${inactiveModels.join(', ')} ${inactiveModels.length === 1 ? 'made' : 'made'} no completed trades in this test window, so their portfolio line stays flat at ₹1,00,000. The flat lines are intentionally drawn with different widths/dashes so overlapping strategies are still visible.`;
+            noteEl.innerHTML = isLS
+                ? `ℹ️ ${inactiveModels.join(', ')} made no completed long/short trades in this test window. In this mode, BUY opens a long position and SELL opens a short position; HOLD keeps the current state and CASH exits.`
+                : `ℹ️ ${inactiveModels.join(', ')} ${inactiveModels.length === 1 ? 'made' : 'made'} no completed trades in this test window, so their portfolio line stays flat at ₹1,00,000. The flat lines are intentionally drawn with different widths/dashes so overlapping strategies are still visible.`;
         } else {
             noteEl.style.display = 'none';
             noteEl.innerHTML = '';
@@ -6012,7 +6111,7 @@ function renderBacktestChart(data) {
         return;
     }
     Plotly.newPlot('backtestChartDiv', traces, {
-        title:{text:'Strategy Portfolio Value vs Buy & Hold', font:{size:13}},
+        title:{text:`Strategy Portfolio Value vs Buy & Hold (${isLS ? 'Long/Short' : 'Long-only'})`, font:{size:13}},
         xaxis:{title:'Date'}, yaxis:{title:'Portfolio Value (₹)', tickprefix:'₹'},
         legend:{x:0.01,y:0.99}, hovermode:'x unified', template:'plotly_white',
         height:340, margin:{t:45,r:20,b:45,l:70}
@@ -6025,10 +6124,12 @@ function formatMetricNumber(value, digits = 2, suffix = '') {
         : Number(value).toFixed(digits) + suffix;
 }
 
-function backtestMeaningCell(r, bh) {
+function backtestMeaningCell(r, bh, mode = 'long_only') {
     const nTrades = Number(r.n_trades || 0);
     if (nTrades === 0) {
-        return '<span class="bt-status-pill idle">Stayed Cash</span>';
+        return mode === 'long_short'
+            ? '<span class="bt-status-pill idle">No Direction</span>'
+            : '<span class="bt-status-pill idle">Stayed Cash</span>';
     }
     if (nTrades < 3) {
         return '<span class="bt-status-pill warn" title="Too few trades for statistical confidence">Low Sample</span>';
@@ -6036,17 +6137,23 @@ function backtestMeaningCell(r, bh) {
     if (bh === null || bh === undefined || r.total_return === null || r.total_return === undefined) {
         return '<span class="bt-status-pill idle">No Benchmark</span>';
     }
-    return Number(r.total_return) > Number(bh)
-        ? '<span class="bt-status-pill active">Beat B&H</span>'
-        : '<span class="bt-status-pill warn">Under B&H</span>';
+    if (Number(r.total_return) > Number(bh)) {
+        return Number(r.total_return) < 0
+            ? '<span class="bt-status-pill active" title="Both lost money, but this strategy lost less than Buy & Hold">Lost Less</span>'
+            : '<span class="bt-status-pill active">Outperformed B&H</span>';
+    }
+    return '<span class="bt-status-pill warn">Under B&H</span>';
 }
 
 /* Backtest summary table */
 function renderBacktestTable(data) {
-    const bt   = data.backtest || {};
+    const payload = getBacktestPayload(data);
+    const bt = payload.bt || {};
+    const mode = payload.mode;
+    const isLS = mode === 'long_short';
     const tbody= document.getElementById('backtestTableBody');
     tbody.innerHTML = '';
-    const bh   = bt.buy_hold_return;
+    const bh = bt.buy_hold_return;
 
     const rows = [
         {name:'Prophet',  key:'prophet',  cls:''},
@@ -6063,19 +6170,24 @@ function renderBacktestTable(data) {
         const nTrades = Number(r.n_trades || 0);
         const retCls = ret === null ? 'val-muted' : ret >= 0 ? 'val-pos' : 'val-neg';
         const tradesCell = nTrades === 0
-            ? '<span class="bt-status-pill idle" title="No completed BUY → SELL trade happened">No trades</span>'
+            ? `<span class="bt-status-pill idle" title="${isLS ? 'No completed long/short trade happened' : 'No completed BUY → SELL trade happened'}">No trades</span>`
             : nTrades < 3
                 ? `<span class="bt-status-pill warn" title="Only ${nTrades} completed trade(s). Too few for reliable statistics.">${nTrades} trade${nTrades === 1 ? '' : 's'}</span>`
                 : `<span class="bt-status-pill active">${nTrades} trades</span>`;
 
+        const subParts = [];
+        if (r.status_reason) subParts.push(r.status_reason);
+        if (isLS && Number(r.short_entries || 0) > 0) subParts.push(`${r.short_entries} short entr${Number(r.short_entries) === 1 ? 'y' : 'ies'}`);
+        if (isLS && Number(r.long_entries || 0) > 0) subParts.push(`${r.long_entries} long entr${Number(r.long_entries) === 1 ? 'y' : 'ies'}`);
+
         tbody.innerHTML += `<tr class="${cls}">
-            <td><strong>${name}</strong>${r.status_reason ? `<div style="font-size:10.5px;color:#9BA8C0;margin-top:2px;">${r.status_reason}</div>` : ''}</td>
+            <td><strong>${name}</strong>${subParts.length ? `<div style="font-size:10.5px;color:#9BA8C0;margin-top:2px;">${subParts.join(' · ')}</div>` : ''}</td>
             <td class="${retCls}">${ret !== null && ret !== undefined ? Number(ret).toFixed(2)+'%' : '—'}</td>
             <td>${nTrades === 0 ? '<span class="val-muted">—</span>' : formatMetricNumber(r.sharpe, 2)}</td>
             <td>${formatMetricNumber(r.max_drawdown, 1, '%')}</td>
             <td>${nTrades === 0 ? '<span class="val-muted">—</span>' : formatMetricNumber(r.win_rate, 1, '%')}</td>
             <td>${tradesCell}</td>
-            <td>${backtestMeaningCell(r, bh)}</td>
+            <td>${backtestMeaningCell(r, bh, mode)}</td>
         </tr>`;
     });
 
@@ -6083,11 +6195,11 @@ function renderBacktestTable(data) {
     const maxTrades  = allNTrades.length ? Math.max(...allNTrades.map(Number)) : 0;
     if (maxTrades === 0 && allNTrades.length) {
         tbody.innerHTML += `<tr><td colspan="7" style="background:#fff8e6;color:#856404;font-size:11.5px;padding:10px 12px;border-top:2px solid #ffe082;">
-            ⚠️ <strong>No completed ML trades in this test window.</strong> The zero returns for some models mean the strategy stayed in cash, not that the chart/table failed. Try a longer test window or a lower entry threshold only if that matches your strategy design.
+            ⚠️ <strong>No completed ${isLS ? 'long/short' : 'long-only'} trades in this test window.</strong> Zero return means the strategy stayed in cash, not that the chart/table failed.
         </td></tr>`;
     } else if (maxTrades > 0 && maxTrades < 3) {
         tbody.innerHTML += `<tr><td colspan="7" style="background:#fff8e6;color:#856404;font-size:11.5px;padding:10px 12px;border-top:2px solid #ffe082;">
-            ⚠️ <strong>Too few trades for statistical validity.</strong> A result based on only ${maxTrades} trade(s) can be accidental. Treat win rate, Sharpe and Beat/Under labels cautiously.
+            ⚠️ <strong>Too few trades for statistical validity.</strong> A result based on only ${maxTrades} trade(s) can be accidental. Treat win rate, Sharpe and benchmark labels cautiously.
         </td></tr>`;
     }
 
@@ -6108,7 +6220,9 @@ function renderSignalDiagnostics(data) {
     const grid = document.getElementById('signalDiagnosticsGrid');
     if (!grid) return;
 
-    const diag = data.signal_diagnostics || {};
+    const payload = getBacktestPayload(data);
+    const diag = payload.diag || {};
+    const isLS = payload.mode === 'long_short';
     const rows = [
         {key:'prophet',  name:'Prophet'},
         {key:'xgboost',  name:'XGBoost'},
@@ -6135,13 +6249,15 @@ function renderSignalDiagnostics(data) {
             </div>`;
         }
         const isProphet = key === 'prophet';
+        const buyLabel = isLS ? 'Long signals' : 'BUY signals';
+        const sellLabel = isLS ? 'Short signals' : 'SELL signals';
         return `<div class="signal-diagnostic-card">
             <div class="diag-model-name">${name}</div>
             <div class="diag-line"><span>Test days</span><strong>${d.days ?? '—'}</strong></div>
             ${!isProphet ? `<div class="diag-line"><span>High-prob days</span><strong>${d.high_probability_days ?? 0}</strong></div>` : ''}
             ${!isProphet ? `<div class="diag-line"><span>Flat-gate days</span><strong>${d.flat_gate_days ?? 0}</strong></div>` : ''}
-            <div class="diag-line"><span>BUY signals</span><strong>${d.buy_signals ?? 0}</strong></div>
-            <div class="diag-line"><span>SELL signals</span><strong>${d.sell_signals ?? 0}</strong></div>
+            <div class="diag-line"><span>${buyLabel}</span><strong>${d.buy_signals ?? 0}</strong></div>
+            <div class="diag-line"><span>${sellLabel}</span><strong>${d.sell_signals ?? 0}</strong></div>
             <div class="diag-line"><span>Trades</span><strong>${d.completed_trades ?? 0}</strong></div>
             ${!isProphet ? `<div class="diag-line"><span>Entry / Exit</span><strong>${pct(d.entry_threshold)} / ${pct(d.exit_threshold)}</strong></div>` : ''}
             <div class="diag-message">${d.message || ''}</div>
