@@ -3787,7 +3787,7 @@
                                 </div>
                                 <div class="ensemble-explain-grid">
                                     <div class="ensemble-explain-card"><strong>XGBoost prob</strong><span>Short-term timing score based on technical features.</span></div>
-                                    <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Sequence-pattern timing score from recent price behaviour.</span></div>
+                                    <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Sequence-pattern timing score from recent price behaviour. It is used only when validation quality is acceptable.</span></div>
                                     <div class="ensemble-explain-card"><strong>Signal</strong><span>BUY/SELL only appears when probability and Prophet direction agree.</span></div>
                                 </div>
                                 <div class="predict-metrics-title" style="margin-top:8px;">Recent Signals (last 15 days)</div>
@@ -5664,7 +5664,7 @@ function _startPolling(jobId) {
             if (txtEl) txtEl.textContent = msg || 'Running…';
             if (subEl && pct < 50) subEl.textContent = 'Prophet training (30–60 s each pass)…';
             else if (subEl && pct < 65) subEl.textContent = 'XGBoost: feature engineering + training…';
-            else if (subEl && pct < 80) subEl.textContent = 'LSTM: sequence training with early stopping…';
+            else if (subEl && pct < 80) subEl.textContent = 'LSTM: improved multi-lookback sequence ensemble…';
             else if (subEl && pct < 90) subEl.textContent = 'Combining models into Ensemble…';
             else if (subEl) subEl.textContent = 'Almost done — assembling results…';
 
@@ -5760,8 +5760,8 @@ function openEnsembleInfo() {
         'The ensemble combines entry-quality timing probabilities with a Prophet trend gate. Prophet direction is now shown separately instead of overriding ML HOLD.',
         [
             {title:'XGB prob', text:'XGBoost probability that the current setup is good enough for a fresh entry based on engineered technical indicators.'},
-            {title:'LSTM prob', text:'LSTM probability that recent sequence patterns look favourable. If validation is weak, it is downweighted instead of hiding the ensemble entirely.'},
-            {title:'Ensemble', text:'Weighted entry-quality probability. XGBoost has the larger weight and LSTM has the smaller weight.'},
+            {title:'LSTM prob', text:'LSTM probability that recent sequence patterns look favourable. If validation is weak, it is excluded from ensemble weight instead of weakening the final signal.'},
+            {title:'Ensemble', text:'Weighted entry-quality probability. XGBoost is used alone when LSTM reliability is weak; LSTM contributes only after it clears validation gates.'},
             {title:'Signal', text:'BUY/SELL appears only when entry probability crosses the threshold and Prophet trend agrees. Otherwise it remains HOLD.'},
             {title:'STRONG / NORMAL', text:'STRONG means both XGBoost and LSTM crossed the threshold. NORMAL means the weighted ensemble crossed it.'},
             {title:'FLAT GATE', text:'Timing probability was high, but Prophet trend was sideways, so the system blocked a fresh trade.'},
@@ -5838,7 +5838,7 @@ function renderPredictionResults(data) {
     const srcParts = [];
     if (data.xgb_metrics && data.xgb_metrics.accuracy !== null) srcParts.push('XGBoost ✓');
     if (data.lstm_metrics && data.lstm_metrics.accuracy !== null) {
-        srcParts.push(data.lstm_reliable ? 'LSTM ✓' : 'LSTM trained, downweighted');
+        srcParts.push(data.lstm_reliable ? 'LSTM ✓' : 'LSTM trained, excluded/downweighted');
     }
 
     let modelSourceText = 'Prophet + ML strategy layer';
@@ -5927,7 +5927,10 @@ function renderPredictionResults(data) {
     if (lm.accuracy === null) {
         rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Not run (torch not installed)</span>';
     } else if (!data.lstm_reliable) {
-        rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Low reliability — trained but downweighted in Ensemble</span>';
+        rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Low reliability — excluded from Ensemble weight</span>';
+        if (lm.validation_auc !== null && lm.validation_auc !== undefined) {
+            rlNote.innerHTML += `<span class="lstm-reliability-note warn" style="margin-left:8px;">Val AUC ${lm.validation_auc.toFixed(4)}</span>`;
+        }
     } else {
         rlNote.innerHTML = '<span class="lstm-reliability-note ok">✅ Reliable</span>';
     }
