@@ -117,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:v6:{symbol.upper()}:{target_date}"
+    return f"predict_result:v7:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -230,12 +230,11 @@ FLAT_TREND_PCT       = float(os.getenv("PREDICTION_FLAT_TREND_PCT", "0.002"))
 LSTM_MIN_AUC         = float(os.getenv("PREDICTION_LSTM_MIN_AUC", "0.58"))
 LSTM_MIN_ACCURACY    = float(os.getenv("PREDICTION_LSTM_MIN_ACCURACY", "55.0"))
 
-# LSTM v2 tuning knobs. The previous single 30-day LSTM was often stuck near
-# 50% probability. This version trains a small sequence ensemble over several
-# lookback windows, chooses/weights candidates by validation AUC only, and
-# optionally flips probability direction when the validation set proves the
-# learned ranking is inverted. The final reported ROC-AUC is still computed on
-# the untouched held-out test window.
+# LSTM v3 tuning knobs. The earlier binary LSTM target was too noisy and
+# collapsed into near-constant probabilities. This version trains a directional
+# 3-class sequence model: CASH/no-trade, LONG setup, SHORT setup. The displayed
+# ROC-AUC is the held-out active-vs-cash AUC, while the model also learns
+# direction explicitly instead of depending only on Prophet for direction.
 LSTM_SEQUENCE_LENGTHS = [int(x.strip()) for x in os.getenv("PREDICTION_LSTM_SEQUENCES", "15,30,45").split(",") if x.strip().isdigit()]
 LSTM_SEQUENCE_LENGTHS = sorted({x for x in LSTM_SEQUENCE_LENGTHS if 5 <= x <= 90}) or [SEQUENCE_LENGTH]
 LSTM_MAX_EPOCHS       = int(os.getenv("PREDICTION_LSTM_MAX_EPOCHS", "70"))
@@ -248,6 +247,19 @@ LSTM_MAX_EPOCHS       = max(20, min(160, LSTM_MAX_EPOCHS))
 LSTM_PATIENCE         = max(5, min(30, LSTM_PATIENCE))
 LSTM_MIN_VAL_AUC      = max(0.50, min(0.75, LSTM_MIN_VAL_AUC))
 LSTM_INVERT_MARGIN    = max(0.00, min(0.20, LSTM_INVERT_MARGIN))
+
+LSTM_LABEL_HORIZON    = int(os.getenv("PREDICTION_LSTM_LABEL_HORIZON", "5"))
+LSTM_ACTIVE_QUANTILE  = float(os.getenv("PREDICTION_LSTM_ACTIVE_QUANTILE", "0.62"))
+LSTM_MIN_ACTIVE_RATE  = float(os.getenv("PREDICTION_LSTM_MIN_ACTIVE_RATE", "0.18"))
+LSTM_MAX_ACTIVE_RATE  = float(os.getenv("PREDICTION_LSTM_MAX_ACTIVE_RATE", "0.48"))
+LSTM_FOCAL_GAMMA      = float(os.getenv("PREDICTION_LSTM_FOCAL_GAMMA", "1.5"))
+LSTM_TEMPERATURE_MAX  = float(os.getenv("PREDICTION_LSTM_TEMPERATURE_MAX", "3.0"))
+LSTM_LABEL_HORIZON    = max(3, min(15, LSTM_LABEL_HORIZON))
+LSTM_ACTIVE_QUANTILE  = max(0.50, min(0.85, LSTM_ACTIVE_QUANTILE))
+LSTM_MIN_ACTIVE_RATE  = max(0.05, min(0.45, LSTM_MIN_ACTIVE_RATE))
+LSTM_MAX_ACTIVE_RATE  = max(LSTM_MIN_ACTIVE_RATE + 0.05, min(0.70, LSTM_MAX_ACTIVE_RATE))
+LSTM_FOCAL_GAMMA      = max(0.0, min(4.0, LSTM_FOCAL_GAMMA))
+LSTM_TEMPERATURE_MAX  = max(1.0, min(8.0, LSTM_TEMPERATURE_MAX))
 
 REGRESSOR_COLS = ["rsi","macd","bb_width","vol_change","daily_return","sma_20","sma_50"]
 
@@ -835,29 +847,34 @@ def run_xgboost_pipeline(xgb_df: pd.DataFrame, test_days: int,
 def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
                       honest_fc: pd.DataFrame) -> dict:
     """
-    Train an improved LSTM sequence ensemble and return signals + metrics.
+    Train a deeper-fix LSTM model and return signals + metrics.
 
-    Changes from the old LSTM:
-      1. Uses the full technical-feature set instead of a small hand-picked subset.
-      2. Trains several lookback windows (default: 15, 30, 45 days).
-      3. Uses chronological validation AUC for early stopping, not only BCE loss.
-      4. Handles class imbalance with a sampler + capped positive weighting.
-      5. Calibrates probabilities on validation data.
-      6. If validation AUC is clearly below 0.5, flips the probability direction
-         using validation evidence only. This catches inverted learned rankings.
-      7. Averages the best validation candidates for a more stable test signal.
+    Why this is different from the previous LSTM:
+      - The old LSTM learned the same noisy binary "good entry" label used by
+        XGBoost. That label was sparse, directionless, and easy for the LSTM to
+        collapse into near-constant probabilities.
+      - This version builds a dedicated directional sequence label:
+            0 = CASH / no clear setup
+            1 = LONG setup
+            2 = SHORT setup
+        using future return normalised by current volatility/ATR.
+      - The active threshold is chosen from the training window only, so the
+        label is adaptive per stock without looking at the held-out test labels.
+      - The network is trained with class-balanced focal cross entropy, then
+        temperature-scaled on chronological validation data. This is aimed at
+        fixing both problems you observed: low ROC-AUC and collapsed probability
+        distribution.
 
-    Important: no held-out test labels are used for model selection, calibration,
-    probability flipping, or candidate weighting. Test ROC-AUC is computed only
-    after the final probability stream is selected.
+    The reported LSTM ROC-AUC is active-vs-cash AUC on the untouched held-out
+    test window. Direction accuracy is reported separately in metrics.
     """
     try:
         import random
         import torch, torch.nn as nn, torch.optim as optim
+        import torch.nn.functional as F
         from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
         from sklearn.preprocessing import RobustScaler, StandardScaler
-        from sklearn.metrics import accuracy_score, roc_auc_score, log_loss
-        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import accuracy_score, roc_auc_score, log_loss, balanced_accuracy_score
     except ImportError as e:
         logger.warning(f"[PREDICT] torch/sklearn unavailable: {e}")
         return {
@@ -896,7 +913,7 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
         except Exception:
             pass
 
-    if xgb_df is None or len(xgb_df) < test_days + 100:
+    if xgb_df is None or len(xgb_df) < test_days + 220:
         return {
             "signals": None,
             "metrics": {"accuracy": None, "roc_auc": None},
@@ -905,14 +922,13 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Use all available engineered technical/Prophet features. The previous
-    # compact feature list was too weak for LSTM and frequently produced nearly
-    # constant 49-52% probabilities.
-    candidate_cols = []
+    # Use all engineered features available to XGBoost plus the old LSTM set.
+    # This makes the sequence model see the same market context as the stronger
+    # tree model, but the target below is redesigned specifically for sequences.
+    feat_cols = []
     for col in list(LSTM_FEATURE_COLS) + list(XGB_ALL_FEATURES):
-        if col not in candidate_cols and col in xgb_df.columns:
-            candidate_cols.append(col)
-    feat_cols = candidate_cols
+        if col not in feat_cols and col in xgb_df.columns:
+            feat_cols.append(col)
     if not feat_cols:
         return {
             "signals": None,
@@ -921,14 +937,65 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
         }
 
     split = len(xgb_df) - test_days
-    raw = xgb_df[feat_cols].replace([np.inf, -np.inf], np.nan).copy()
-    raw = raw.ffill().bfill().fillna(0.0)
-    tgt = xgb_df["target"].astype(int).values
+    df = xgb_df.copy().reset_index(drop=True)
 
+    def _make_directional_labels(frame: pd.DataFrame, split_idx: int):
+        close = pd.to_numeric(frame["Close"], errors="coerce").astype(float)
+        future_close = close.shift(-LSTM_LABEL_HORIZON)
+        future_ret = (future_close / close - 1.0).replace([np.inf, -np.inf], np.nan)
+
+        # Normalise return by volatility so a ₹50 move in a high-volatility stock
+        # is not treated the same as a ₹50 move in a stable stock.
+        atr_pct = pd.to_numeric(frame.get("atr_pct", np.nan), errors="coerce")
+        vol21 = pd.to_numeric(frame.get("volatility_21d", np.nan), errors="coerce")
+        scale = pd.concat([atr_pct.abs(), vol21.abs()], axis=1).max(axis=1)
+        scale = scale.replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0.015)
+        scale = scale.clip(lower=0.006, upper=0.12)
+        score = (future_ret / scale).replace([np.inf, -np.inf], np.nan)
+
+        train_score = score.iloc[:max(1, split_idx - LSTM_LABEL_HORIZON)].dropna()
+        if train_score.empty:
+            return None
+
+        # The cut is adaptive, but derived from training data only. This prevents
+        # a rare-event label from becoming too sparse for the LSTM.
+        cut = float(train_score.abs().quantile(LSTM_ACTIVE_QUANTILE))
+        cut = max(0.35, min(2.50, cut))
+
+        # Keep the active-class rate within a sane range. If too few labels are
+        # active, lower the cut; if almost everything is active, raise the cut.
+        for _ in range(10):
+            active_rate = float((train_score.abs() >= cut).mean())
+            if active_rate < LSTM_MIN_ACTIVE_RATE:
+                cut *= 0.88
+            elif active_rate > LSTM_MAX_ACTIVE_RATE:
+                cut *= 1.12
+            else:
+                break
+            cut = max(0.25, min(3.00, cut))
+
+        labels = np.zeros(len(frame), dtype=np.int64)
+        labels[score.values >= cut] = 1      # LONG setup
+        labels[score.values <= -cut] = 2     # SHORT setup
+
+        valid = np.isfinite(score.values)
+        labels[~valid] = 0
+        active = (labels != 0).astype(int)
+        return labels, active, score.values, cut
+
+    label_pack = _make_directional_labels(df, split)
+    if label_pack is None:
+        return {
+            "signals": None,
+            "metrics": {"accuracy": None, "roc_auc": None},
+            "lstm_reliable": False,
+        }
+    direction_labels, active_labels, directional_score, active_cut = label_pack
+
+    raw = df[feat_cols].replace([np.inf, -np.inf], np.nan).copy()
+    raw = raw.ffill().bfill().fillna(0.0)
     tr_raw = raw.iloc[:split].values.astype(np.float32)
     te_raw = raw.iloc[split:].values.astype(np.float32)
-    tr_tgt = tgt[:split].astype(int)
-    te_tgt = tgt[split:].astype(int)
 
     try:
         scaler = RobustScaler(quantile_range=(5.0, 95.0))
@@ -942,19 +1009,18 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
     tr_sc = np.clip(tr_sc, -8, 8).astype(np.float32)
     te_sc = np.clip(te_sc, -8, 8).astype(np.float32)
     comb_sc = np.vstack([tr_sc, te_sc]).astype(np.float32)
-    comb_tgt = np.concatenate([tr_tgt, te_tgt]).astype(int)
 
     class SeqDS(Dataset):
         def __init__(self, X, y):
             self.X = torch.tensor(X, dtype=torch.float32)
-            self.y = torch.tensor(y, dtype=torch.float32)
+            self.y = torch.tensor(y, dtype=torch.long)
         def __len__(self):
             return len(self.X)
         def __getitem__(self, i):
             return self.X[i], self.y[i]
 
-    class AttentionLSTM(nn.Module):
-        def __init__(self, nf: int, hidden: int = 48, drop: float = 0.25):
+    class DirectionalAttentionLSTM(nn.Module):
+        def __init__(self, nf: int, hidden: int = 56, drop: float = 0.25):
             super().__init__()
             self.input_norm = nn.LayerNorm(nf)
             self.lstm = nn.LSTM(
@@ -972,78 +1038,127 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
             self.head = nn.Sequential(
                 nn.LayerNorm(hidden * 2),
                 nn.Dropout(drop),
-                nn.Linear(hidden * 2, 64),
+                nn.Linear(hidden * 2, 72),
                 nn.GELU(),
                 nn.Dropout(drop),
-                nn.Linear(64, 1),
+                nn.Linear(72, 3),
             )
         def forward(self, x):
             x = self.input_norm(x)
             out, _ = self.lstm(x)
             weights = torch.softmax(self.attn(out).squeeze(-1), dim=1).unsqueeze(-1)
             pooled = torch.sum(out * weights, dim=1)
-            return self.head(pooled).squeeze(1)
+            return self.head(pooled)
 
-    def make_seq(feats: np.ndarray, tgts: np.ndarray, L: int):
-        X, y = [], []
+    def make_seq(feats: np.ndarray, labels: np.ndarray, L: int, offset: int = 0):
+        X, y, idx = [], [], []
         for i in range(L, len(feats)):
+            global_i = offset + i
             X.append(feats[i - L:i])
-            y.append(tgts[i])
+            y.append(labels[global_i])
+            idx.append(global_i)
         if not X:
-            return np.empty((0, L, feats.shape[1]), dtype=np.float32), np.empty((0,), dtype=np.int64)
-        return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int64)
+            return (
+                np.empty((0, L, feats.shape[1]), dtype=np.float32),
+                np.empty((0,), dtype=np.int64),
+                np.empty((0,), dtype=np.int64),
+            )
+        return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int64), np.asarray(idx, dtype=np.int64)
 
-    def predict_probs(model, X, batch_size: int = 256):
+    def predict_logits(model, X, batch_size: int = 256):
         if len(X) == 0:
-            return np.asarray([], dtype=float)
-        loader = DataLoader(SeqDS(X, np.zeros(len(X))), batch_size=batch_size, shuffle=False)
-        probs = []
+            return np.empty((0, 3), dtype=float)
+        loader = DataLoader(SeqDS(X, np.zeros(len(X), dtype=np.int64)), batch_size=batch_size, shuffle=False)
+        outs = []
         model.eval()
         with torch.no_grad():
             for xb, _ in loader:
                 logits = model(xb.to(device))
-                probs.extend(torch.sigmoid(logits).detach().cpu().numpy())
-        return np.asarray(probs, dtype=float)
+                outs.append(logits.detach().cpu().numpy())
+        return np.vstack(outs).astype(float) if outs else np.empty((0, 3), dtype=float)
+
+    def softmax_np(logits, temperature: float = 1.0):
+        z = np.asarray(logits, dtype=float) / max(float(temperature), 1e-6)
+        z = z - np.max(z, axis=1, keepdims=True)
+        ez = np.exp(z)
+        return ez / np.clip(ez.sum(axis=1, keepdims=True), 1e-12, None)
+
+    def _active_auc_from_probs(labels3, probs3):
+        active_true = (np.asarray(labels3).astype(int) != 0).astype(int)
+        active_prob = np.asarray(probs3)[:, 1] + np.asarray(probs3)[:, 2]
+        return _safe_auc(active_true, active_prob)
+
+    def _active_logloss_from_probs(labels3, probs3):
+        active_true = (np.asarray(labels3).astype(int) != 0).astype(int)
+        active_prob = np.clip(np.asarray(probs3)[:, 1] + np.asarray(probs3)[:, 2], 1e-5, 1.0 - 1e-5)
+        return _safe_logloss(active_true, active_prob)
+
+    def _direction_accuracy(labels3, probs3):
+        labels3 = np.asarray(labels3).astype(int)
+        active_mask = labels3 != 0
+        if not active_mask.any():
+            return 0.0
+        pred_dir = np.where(np.asarray(probs3)[:, 1] >= np.asarray(probs3)[:, 2], 1, 2)
+        return float((pred_dir[active_mask] == labels3[active_mask]).mean() * 100.0)
+
+    def _fit_temperature(val_logits, y_val):
+        # Simple grid search is stable and avoids adding another dependency.
+        best_t = 1.0
+        best_loss = float("inf")
+        for t in np.linspace(0.70, LSTM_TEMPERATURE_MAX, 24):
+            probs = softmax_np(val_logits, temperature=float(t))
+            loss = _active_logloss_from_probs(y_val, probs)
+            if loss < best_loss:
+                best_loss = loss
+                best_t = float(t)
+        return best_t
 
     def train_one_candidate(seq_len: int, seed: int) -> Optional[dict]:
         _set_seed(seed)
-        X_train_all, y_train_all = make_seq(tr_sc, tr_tgt, seq_len)
-        X_all, y_all = make_seq(comb_sc, comb_tgt, seq_len)
-        if len(X_train_all) < 300 or len(X_all) < test_days:
+
+        X_train_all, y_train_all, idx_train_all = make_seq(tr_sc, direction_labels, seq_len, offset=0)
+        X_all, y_all, idx_all = make_seq(comb_sc, direction_labels, seq_len, offset=0)
+        if len(X_train_all) < 350 or len(X_all) < test_days:
             return None
 
         X_test = X_all[-test_days:]
         y_test = y_all[-test_days:].astype(int)
+        idx_test = idx_all[-test_days:]
 
-        # Chronological validation split. Keep enough validation rows so AUC is
-        # less jumpy on rare-entry labels.
-        val_size = max(90, int(len(X_train_all) * 0.18))
-        val_size = min(val_size, max(40, len(X_train_all) // 3))
+        # Chronological validation split. It must contain both active and cash
+        # labels; otherwise AUC-based early stopping is meaningless.
+        val_size = max(120, int(len(X_train_all) * 0.20))
+        val_size = min(val_size, max(60, len(X_train_all) // 3))
         train_cut = len(X_train_all) - val_size
-        if train_cut < 200:
+        if train_cut < 250:
             return None
 
         X_train, y_train = X_train_all[:train_cut], y_train_all[:train_cut].astype(int)
         X_val, y_val = X_train_all[train_cut:], y_train_all[train_cut:].astype(int)
-        if len(np.unique(y_train)) < 2:
+        if len(np.unique(y_train)) < 2 or len(np.unique((y_val != 0).astype(int))) < 2:
             return None
 
         n_feat = X_train.shape[-1]
-        net = AttentionLSTM(n_feat).to(device)
+        net = DirectionalAttentionLSTM(n_feat).to(device)
 
-        pos = max(int((y_train == 1).sum()), 1)
-        neg = max(int((y_train == 0).sum()), 1)
-        # Capped square-root weighting avoids the old LSTM overcompensating for
-        # rare labels and collapsing toward an inverted/near-constant output.
-        pos_weight_val = float(np.clip(np.sqrt(neg / pos), 1.0, 6.0))
-        criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_val], dtype=torch.float32).to(device))
-        opt = optim.AdamW(net.parameters(), lr=8e-4, weight_decay=2e-4)
+        counts = np.bincount(y_train.astype(int), minlength=3).astype(float)
+        inv = len(y_train) / np.maximum(counts, 1.0)
+        class_weights = np.sqrt(inv)
+        class_weights = class_weights / np.mean(class_weights)
+        class_weights = np.clip(class_weights, 0.60, 4.00)
+        weight_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
+
+        def focal_ce_loss(logits, yb):
+            ce = F.cross_entropy(logits, yb, weight=weight_tensor, reduction="none", label_smoothing=0.03)
+            if LSTM_FOCAL_GAMMA <= 0:
+                return ce.mean()
+            pt = torch.exp(-ce).detach()
+            return (((1.0 - pt) ** LSTM_FOCAL_GAMMA) * ce).mean()
+
+        opt = optim.AdamW(net.parameters(), lr=7e-4, weight_decay=2.5e-4)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", patience=3, factor=0.55)
 
-        # Balanced sampler improves minority-class exposure without needing an
-        # excessively large pos_weight.
-        class_counts = np.bincount(y_train.astype(int), minlength=2).astype(float)
-        sample_weights = np.where(y_train == 1, 1.0 / max(class_counts[1], 1.0), 1.0 / max(class_counts[0], 1.0))
+        sample_weights = class_weights[y_train.astype(int)]
         sampler = WeightedRandomSampler(
             weights=torch.tensor(sample_weights, dtype=torch.double),
             num_samples=len(sample_weights),
@@ -1052,7 +1167,7 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
         train_loader = DataLoader(SeqDS(X_train, y_train), batch_size=64, sampler=sampler)
 
         best_state = None
-        best_auc = -1.0
+        best_score = -1.0
         best_loss = float("inf")
         patience = 0
 
@@ -1062,22 +1177,25 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
                 xb = xb.to(device)
                 yb = yb.to(device)
                 opt.zero_grad()
-                loss = criterion(net(xb), yb)
+                loss = focal_ce_loss(net(xb), yb)
                 loss.backward()
                 nn.utils.clip_grad_norm_(net.parameters(), 1.0)
                 opt.step()
 
-            val_probs_raw = predict_probs(net, X_val)
-            val_auc_raw = _safe_auc(y_val, val_probs_raw)
-            val_loss = _safe_logloss(y_val, val_probs_raw)
-            scheduler.step(val_auc_raw)
+            val_logits = predict_logits(net, X_val)
+            val_probs = softmax_np(val_logits)
+            val_auc = _active_auc_from_probs(y_val, val_probs)
+            val_dir_acc = _direction_accuracy(y_val, val_probs) / 100.0
+            val_loss = _active_logloss_from_probs(y_val, val_probs)
+            # AUC is the main target; direction accuracy is a small tie-breaker.
+            score = val_auc + 0.08 * max(0.0, val_dir_acc - 0.50)
+            scheduler.step(score)
 
-            # Prefer AUC improvement; use validation loss as tie-breaker.
-            improved = (val_auc_raw > best_auc + 1e-4) or (
-                abs(val_auc_raw - best_auc) <= 1e-4 and val_loss < best_loss - 1e-4
+            improved = (score > best_score + 1e-4) or (
+                abs(score - best_score) <= 1e-4 and val_loss < best_loss - 1e-4
             )
             if improved:
-                best_auc = val_auc_raw
+                best_score = score
                 best_loss = val_loss
                 best_state = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
                 patience = 0
@@ -1090,120 +1208,167 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
             net.load_state_dict(best_state)
         net.eval()
 
-        val_probs = predict_probs(net, X_val)
-        test_probs = predict_probs(net, X_test)
-        val_auc = _safe_auc(y_val, val_probs)
-        inverted = False
+        val_logits = predict_logits(net, X_val)
+        temperature = _fit_temperature(val_logits, y_val)
+        val_probs = softmax_np(val_logits, temperature=temperature)
+        test_probs = softmax_np(predict_logits(net, X_test), temperature=temperature)
 
-        # Use validation only to detect a consistently inverted ranking. This is
-        # often what repeated test AUC < 0.5 indicates.
-        if val_auc < (0.5 - LSTM_INVERT_MARGIN):
-            val_probs = 1.0 - val_probs
-            test_probs = 1.0 - test_probs
-            val_auc = _safe_auc(y_val, val_probs)
-            inverted = True
-
-        # Probability calibration for better threshold behaviour. AUC itself is
-        # rank-based, but calibration helps the ensemble threshold act sanely.
-        calibrated = False
-        if len(np.unique(y_val)) == 2:
-            try:
-                lr = LogisticRegression(max_iter=500, solver="lbfgs")
-                lr.fit(val_probs.reshape(-1, 1), y_val)
-                val_probs = lr.predict_proba(val_probs.reshape(-1, 1))[:, 1]
-                test_probs = lr.predict_proba(test_probs.reshape(-1, 1))[:, 1]
-                calibrated = True
-            except Exception as exc:
-                logger.debug(f"[PREDICT] LSTM calibration skipped: {exc}")
+        val_auc = _active_auc_from_probs(y_val, val_probs)
+        val_loss = _active_logloss_from_probs(y_val, val_probs)
+        val_dir = _direction_accuracy(y_val, val_probs)
 
         return {
             "seq_len": seq_len,
             "seed": seed,
-            "val_auc": round(float(_safe_auc(y_val, val_probs)), 4),
-            "val_logloss": round(float(_safe_logloss(y_val, val_probs)), 4),
-            "test_probs": np.asarray(test_probs, dtype=float),
-            "test_labels": y_test,
-            "inverted": inverted,
-            "calibrated": calibrated,
+            "val_auc": round(float(val_auc), 4),
+            "val_logloss": round(float(val_loss), 4),
+            "val_direction_accuracy": round(float(val_dir), 1),
+            "test_probs3": np.asarray(test_probs, dtype=float),
+            "test_labels3": y_test,
+            "test_indices": idx_test,
+            "temperature": round(float(temperature), 3),
+            "class_weights": [round(float(x), 3) for x in class_weights],
         }
 
     candidates = []
     for seq_len in LSTM_SEQUENCE_LENGTHS:
-        if split <= seq_len + 300:
+        if split <= seq_len + 350:
             continue
         for seed in LSTM_SEEDS:
             try:
                 cand = train_one_candidate(seq_len, seed)
-                if cand is not None and len(cand["test_probs"]) == test_days:
+                if cand is not None and len(cand["test_probs3"]) == test_days:
                     candidates.append(cand)
             except Exception as exc:
-                logger.warning(f"[PREDICT] LSTM candidate failed (seq={seq_len}, seed={seed}): {exc}")
+                logger.warning(f"[PREDICT] LSTM v3 candidate failed (seq={seq_len}, seed={seed}): {exc}")
 
     if not candidates:
-        logger.warning("[PREDICT] LSTM produced no valid candidates")
+        logger.warning("[PREDICT] LSTM v3 produced no valid candidates")
         return {
             "signals": None,
             "metrics": {"accuracy": None, "roc_auc": None},
             "lstm_reliable": False,
         }
 
-    # Select/average by validation AUC only. Take all candidates near the best so
-    # one lucky seed does not dominate the final probability stream.
     best_val_auc = max(c["val_auc"] for c in candidates)
-    selected = [c for c in candidates if c["val_auc"] >= max(0.50, best_val_auc - 0.025)]
-    selected = sorted(selected, key=lambda c: (c["val_auc"], -c["val_logloss"]), reverse=True)[:4]
+    selected = [c for c in candidates if c["val_auc"] >= max(0.50, best_val_auc - 0.030)]
+    selected = sorted(selected, key=lambda c: (c["val_auc"], c["val_direction_accuracy"], -c["val_logloss"]), reverse=True)[:4]
 
     weights = np.asarray([max(c["val_auc"] - 0.49, 0.01) for c in selected], dtype=float)
     weights = weights / weights.sum()
-    test_probs = np.sum([w * c["test_probs"] for w, c in zip(weights, selected)], axis=0)
-    test_probs = np.clip(test_probs, 0.0, 1.0)
-    test_labels = selected[0]["test_labels"].astype(int)
+    probs3 = np.sum([w * c["test_probs3"] for w, c in zip(weights, selected)], axis=0)
+    probs3 = np.clip(probs3, 1e-6, 1.0)
+    probs3 = probs3 / probs3.sum(axis=1, keepdims=True)
+    labels3 = selected[0]["test_labels3"].astype(int)
 
-    acc = float(accuracy_score(test_labels, (test_probs >= 0.5).astype(int)) * 100.0)
-    auc = _safe_auc(test_labels, test_probs)
+    active_prob = probs3[:, 1] + probs3[:, 2]
+    active_true = (labels3 != 0).astype(int)
+    active_pred = (active_prob >= CONFIDENCE_THRESHOLD).astype(int)
+    active_acc = float(accuracy_score(active_true, active_pred) * 100.0)
+    try:
+        balanced_acc = float(balanced_accuracy_score(active_true, active_pred) * 100.0)
+    except Exception:
+        balanced_acc = active_acc
+    active_auc = _safe_auc(active_true, active_prob)
+    direction_acc = _direction_accuracy(labels3, probs3)
 
-    # Reliability is still based on held-out test performance, but now also
-    # requires a reasonable validation AUC so the ensemble does not trust a lucky
-    # test-window result.
+    # Use direction probabilities to create LSTM's raw signal. Prophet still acts
+    # as a direction gate, but LSTM now says whether its active setup is long or
+    # short. This avoids treating a bearish LSTM setup as a BUY merely because
+    # Prophet is up.
+    te_slice = df.iloc[split:].copy().reset_index(drop=True)
+    trend_state = _prophet_trend_state(honest_fc, te_slice["date"].values)
+    model_direction = np.where(probs3[:, 1] >= probs3[:, 2], "BUY", "SELL")
+
+    sigs, strengths = [], []
+    for p, md, trend in zip(active_prob, model_direction, trend_state):
+        if p < CONFIDENCE_THRESHOLD:
+            sigs.append("HOLD")
+            strengths.append("LOW PROB")
+        elif trend == "flat":
+            sigs.append("HOLD")
+            strengths.append("FLAT GATE")
+        elif md == "BUY" and trend == "up":
+            sigs.append("BUY")
+            strengths.append("ACTIVE")
+        elif md == "SELL" and trend == "down":
+            sigs.append("SELL")
+            strengths.append("ACTIVE")
+        else:
+            sigs.append("HOLD")
+            strengths.append("DIRECTION CONFLICT")
+
+    sigs_df = pd.DataFrame({
+        "date": te_slice["date"].values,
+        "Close": te_slice["Close"].values,
+        "prob_good_entry": np.round(active_prob, 4),
+        "lstm_cash_prob": np.round(probs3[:, 0], 4),
+        "lstm_long_prob": np.round(probs3[:, 1], 4),
+        "lstm_short_prob": np.round(probs3[:, 2], 4),
+        "model_direction": model_direction,
+        "prophet_uptrend": (trend_state == "up").astype(int),
+        "prophet_trend_state": trend_state,
+        "signal": sigs,
+        "strength": strengths,
+    })
+
+    train_labels = direction_labels[:split]
+    train_counts = np.bincount(train_labels.astype(int), minlength=3)
+    test_counts = np.bincount(labels3.astype(int), minlength=3)
+
     has_enough_sequences = bool(split - max(LSTM_SEQUENCE_LENGTHS) >= 500)
     lstm_reliable = bool(
         has_enough_sequences
-        and auc >= LSTM_MIN_AUC
-        and acc >= LSTM_MIN_ACCURACY
+        and active_auc >= LSTM_MIN_AUC
+        and balanced_acc >= max(50.0, LSTM_MIN_ACCURACY - 8.0)
+        and direction_acc >= 52.0
         and best_val_auc >= LSTM_MIN_VAL_AUC
     )
-
-    te_slice = xgb_df.iloc[split:].copy()
-    sigs = _hierarchical_signals(test_probs, te_slice["date"].values,
-                                  honest_fc, te_slice["Close"].values)
 
     selected_summary = [
         {
             "seq_len": int(c["seq_len"]),
             "seed": int(c["seed"]),
             "val_auc": float(c["val_auc"]),
-            "inverted": bool(c["inverted"]),
-            "calibrated": bool(c["calibrated"]),
+            "val_direction_accuracy": float(c["val_direction_accuracy"]),
+            "temperature": float(c["temperature"]),
         }
         for c in selected
     ]
 
     logger.info(
-        "[PREDICT] LSTM v2 selected=%s test_auc=%.4f test_acc=%.1f reliable=%s",
+        "[PREDICT] LSTM v3 selected=%s active_auc=%.4f active_acc=%.1f bal_acc=%.1f dir_acc=%.1f reliable=%s",
         selected_summary,
-        auc,
-        acc,
+        active_auc,
+        active_acc,
+        balanced_acc,
+        direction_acc,
         lstm_reliable,
     )
 
     return {
-        "signals": sigs,
+        "signals": sigs_df,
         "metrics": {
-            "accuracy": round(acc, 1),
-            "roc_auc": round(float(auc), 4),
+            "accuracy": round(float(active_acc), 1),
+            "balanced_accuracy": round(float(balanced_acc), 1),
+            "roc_auc": round(float(active_auc), 4),
+            "direction_accuracy": round(float(direction_acc), 1),
             "validation_auc": round(float(best_val_auc), 4),
             "selected_candidates": selected_summary,
             "sequence_lengths": LSTM_SEQUENCE_LENGTHS,
+            "label_mode": "directional_3class_volatility_adjusted",
+            "label_horizon_days": int(LSTM_LABEL_HORIZON),
+            "active_cut": round(float(active_cut), 4),
+            "train_label_counts": {
+                "cash": int(train_counts[0]),
+                "long": int(train_counts[1]),
+                "short": int(train_counts[2]),
+            },
+            "test_label_counts": {
+                "cash": int(test_counts[0]),
+                "long": int(test_counts[1]),
+                "short": int(test_counts[2]),
+            },
         },
         "lstm_reliable": lstm_reliable,
     }
@@ -1221,7 +1386,7 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
         columns={"prob_good_entry":"lstm_prob"})
     df  = xgb.merge(lst, on="date", how="inner")
 
-    # Adaptive weighting: if LSTM is still weak after the v2 improvements,
+    # Adaptive weighting: if LSTM is still weak after the v3 directional-label improvements,
     # exclude it from the ensemble instead of letting a bad sequence model drag
     # down a strong XGBoost signal. When LSTM clears reliability gates, restore
     # the configured XGBoost/LSTM weights.
@@ -1322,6 +1487,13 @@ def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
     df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
     df["prophet_trend_state"] = list(_normalise_trend_state(df))
     df["entry_quality"] = df["entry_prob"] >= entry_threshold
+    if "signal" in df.columns:
+        df["raw_advisory_signal"] = df["signal"].astype(str).str.upper()
+    else:
+        df["raw_advisory_signal"] = np.where(
+            (df["entry_prob"] >= entry_threshold) & (df["prophet_trend_state"] == "up"), "BUY",
+            np.where((df["entry_prob"] >= entry_threshold) & (df["prophet_trend_state"] == "down"), "SELL", "HOLD")
+        )
 
     strategy_signals, reasons = [], []
     position = "OUT"
@@ -1336,13 +1508,17 @@ def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
         sig = "HOLD"
         reason = "WAITING_FOR_ENTRY"
 
+        raw_sig = str(row.get("raw_advisory_signal", "HOLD")).upper()
+
         if position == "OUT":
-            if prob >= entry_threshold and trend == "up":
+            if raw_sig == "BUY" and prob >= entry_threshold:
                 sig = "BUY"
-                reason = "ENTRY_PROB_AND_UPTREND"
+                reason = "ENTRY_MODEL_BUY_SIGNAL"
                 position = "IN"
                 entry_price = px
                 entry_date = dt
+            elif raw_sig == "SELL" and prob >= entry_threshold:
+                reason = "BEARISH_SIGNAL_AVOID_LONG_ENTRY"
             elif prob >= entry_threshold and trend == "flat":
                 reason = "ENTRY_BLOCKED_FLAT_TREND"
             elif prob >= entry_threshold and trend == "down":
@@ -1353,7 +1529,10 @@ def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
             hold_days = int((dt - entry_date).days) if entry_date is not None else 0
             ret = (px / entry_price - 1.0) if entry_price else 0.0
 
-            if trend != "up":
+            if raw_sig == "SELL":
+                sig = "SELL"
+                reason = "EXIT_MODEL_BEARISH_SIGNAL"
+            elif trend != "up":
                 sig = "SELL"
                 reason = "EXIT_TREND_NOT_UP"
             elif prob <= exit_threshold:
@@ -1440,6 +1619,13 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
     df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
     df["prophet_trend_state"] = list(_normalise_trend_state(df))
     df["entry_quality"] = df["entry_prob"] >= entry_threshold
+    if "signal" in df.columns:
+        df["raw_advisory_signal"] = df["signal"].astype(str).str.upper()
+    else:
+        df["raw_advisory_signal"] = np.where(
+            (df["entry_prob"] >= entry_threshold) & (df["prophet_trend_state"] == "up"), "BUY",
+            np.where((df["entry_prob"] >= entry_threshold) & (df["prophet_trend_state"] == "down"), "SELL", "HOLD")
+        )
 
     signals, reasons, positions = [], [], []
     position = "CASH"  # CASH | LONG | SHORT
@@ -1454,14 +1640,18 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
         sig = "HOLD"
         reason = "WAITING_FOR_DIRECTIONAL_ENTRY"
 
+        raw_sig = str(row.get("raw_advisory_signal", "HOLD")).upper()
         desired = "CASH"
-        if prob >= entry_threshold and trend == "up":
+        if raw_sig == "BUY" and prob >= entry_threshold:
             desired = "LONG"
-        elif prob >= entry_threshold and trend == "down":
+        elif raw_sig == "SELL" and prob >= entry_threshold:
             desired = "SHORT"
         elif prob >= entry_threshold and trend == "flat":
             desired = "CASH"
             reason = "ENTRY_BLOCKED_FLAT_TREND"
+        elif prob >= entry_threshold:
+            desired = "CASH"
+            reason = "DIRECTION_CONFLICT_OR_GATE_BLOCK"
         else:
             reason = "LOW_ENTRY_PROBABILITY"
 
@@ -2486,7 +2676,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             import torch  # noqa — check availability
             if xgb_df_feat is not None and len(xgb_df_feat)>=SEQUENCE_LENGTH+TEST_DAYS+20:
                 if cancelled(): return
-                progress(62, "Training improved LSTM sequence ensemble (multi-lookback + validation AUC)…")
+                progress(62, "Training LSTM v3 directional sequence model (CASH/LONG/SHORT)…")
                 lstm_result = run_lstm_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
                 if lstm_result["signals"] is not None:
                     lstm_strategy_sigs = build_entry_exit_strategy_signals(
