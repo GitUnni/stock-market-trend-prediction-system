@@ -117,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:v4:{symbol.upper()}:{target_date}"
+    return f"predict_result:v5:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -1108,6 +1108,194 @@ def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
     return df
 
 
+
+def build_long_short_strategy_signals(signals_df: pd.DataFrame,
+                                      prob_col: str,
+                                      model_name: str,
+                                      price_col: str = "Close",
+                                      entry_threshold: float = CONFIDENCE_THRESHOLD,
+                                      exit_threshold: float = EXIT_PROB_THRESHOLD,
+                                      stop_loss_pct: float = STOP_LOSS_PCT,
+                                      take_profit_pct: float = TAKE_PROFIT_PCT,
+                                      max_hold_days: int = MAX_HOLD_DAYS) -> pd.DataFrame:
+    """
+    Convert entry-quality probabilities into a directional long/short strategy.
+
+    This mode is intentionally separate from the beginner-friendly long-only
+    mode. It lets the backtest answer a different question:
+        "If SELL meant opening a short position instead of only exiting a long,
+         what would the strategy have done?"
+
+    Direction rules:
+      - probability >= entry_threshold and Prophet trend is up   -> LONG / BUY
+      - probability >= entry_threshold and Prophet trend is down -> SHORT / SELL
+      - flat trend blocks fresh directional entries
+
+    Risk/exit rules:
+      - exit when probability falls below exit_threshold
+      - exit when Prophet trend turns flat
+      - reverse when a strong opposite signal appears
+      - stop-loss, take-profit, or max holding period
+    """
+    if signals_df is None or signals_df.empty:
+        return pd.DataFrame()
+
+    df = signals_df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df = df.dropna(subset=["date", price_col]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        return df
+
+    if prob_col not in df.columns:
+        df["entry_prob"] = np.nan
+        df["signal"] = "HOLD"
+        df["strategy_signal"] = "HOLD"
+        df["trade_reason"] = "NO_PROBABILITY"
+        df["position_after_signal"] = "CASH"
+        df["model_name"] = model_name
+        return df
+
+    df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
+    df["prophet_trend_state"] = list(_normalise_trend_state(df))
+    df["entry_quality"] = df["entry_prob"] >= entry_threshold
+
+    signals, reasons, positions = [], [], []
+    position = "CASH"  # CASH | LONG | SHORT
+    entry_price = None
+    entry_date = None
+
+    for _, row in df.iterrows():
+        px = float(row[price_col])
+        prob = float(row["entry_prob"])
+        trend = str(row["prophet_trend_state"]).lower()
+        dt = row["date"]
+        sig = "HOLD"
+        reason = "WAITING_FOR_DIRECTIONAL_ENTRY"
+
+        desired = "CASH"
+        if prob >= entry_threshold and trend == "up":
+            desired = "LONG"
+        elif prob >= entry_threshold and trend == "down":
+            desired = "SHORT"
+        elif prob >= entry_threshold and trend == "flat":
+            desired = "CASH"
+            reason = "ENTRY_BLOCKED_FLAT_TREND"
+        else:
+            reason = "LOW_ENTRY_PROBABILITY"
+
+        if position == "CASH":
+            if desired == "LONG":
+                sig = "BUY"
+                reason = "LONG_ENTRY_PROB_AND_UPTREND"
+                position = "LONG"
+                entry_price = px
+                entry_date = dt
+            elif desired == "SHORT":
+                sig = "SELL"
+                reason = "SHORT_ENTRY_PROB_AND_DOWNTREND"
+                position = "SHORT"
+                entry_price = px
+                entry_date = dt
+
+        elif position == "LONG":
+            hold_days = int((dt - entry_date).days) if entry_date is not None else 0
+            ret = (px / entry_price - 1.0) if entry_price else 0.0
+
+            if desired == "SHORT":
+                sig = "SELL"
+                reason = "REVERSE_LONG_TO_SHORT"
+                position = "SHORT"
+                entry_price = px
+                entry_date = dt
+            elif trend == "flat":
+                sig = "CASH"
+                reason = "EXIT_LONG_FLAT_TREND"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif prob <= exit_threshold:
+                sig = "CASH"
+                reason = "EXIT_LONG_PROB_DROPPED"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif stop_loss_pct > 0 and ret <= -stop_loss_pct:
+                sig = "CASH"
+                reason = "EXIT_LONG_STOP_LOSS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif take_profit_pct > 0 and ret >= take_profit_pct:
+                sig = "CASH"
+                reason = "EXIT_LONG_TAKE_PROFIT"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif hold_days >= max_hold_days:
+                sig = "CASH"
+                reason = "EXIT_LONG_MAX_HOLD_DAYS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            else:
+                reason = "HOLDING_LONG"
+
+        elif position == "SHORT":
+            hold_days = int((dt - entry_date).days) if entry_date is not None else 0
+            ret = ((entry_price - px) / entry_price) if entry_price and px > 0 else 0.0
+
+            if desired == "LONG":
+                sig = "BUY"
+                reason = "REVERSE_SHORT_TO_LONG"
+                position = "LONG"
+                entry_price = px
+                entry_date = dt
+            elif trend == "flat":
+                sig = "CASH"
+                reason = "EXIT_SHORT_FLAT_TREND"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif prob <= exit_threshold:
+                sig = "CASH"
+                reason = "EXIT_SHORT_PROB_DROPPED"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif stop_loss_pct > 0 and ret <= -stop_loss_pct:
+                sig = "CASH"
+                reason = "EXIT_SHORT_STOP_LOSS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif take_profit_pct > 0 and ret >= take_profit_pct:
+                sig = "CASH"
+                reason = "EXIT_SHORT_TAKE_PROFIT"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif hold_days >= max_hold_days:
+                sig = "CASH"
+                reason = "EXIT_SHORT_MAX_HOLD_DAYS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            else:
+                reason = "HOLDING_SHORT"
+
+        signals.append(sig)
+        reasons.append(reason)
+        positions.append(position)
+
+    df["raw_model_signal"] = df.get("signal", "HOLD")
+    df["strategy_signal"] = signals
+    df["signal"] = df["strategy_signal"]
+    df["trade_reason"] = reasons
+    df["position_after_signal"] = positions
+    df["model_name"] = model_name
+    return df
+
 def build_prophet_strategy_signals(backtest_series: list,
                                    entry_threshold_pct: float = 0.005,
                                    exit_threshold_pct: float = 0.000,
@@ -1182,9 +1370,149 @@ def build_prophet_strategy_signals(backtest_series: list,
     return df
 
 
+
+def build_prophet_long_short_strategy_signals(backtest_series: list,
+                                              entry_threshold_pct: float = 0.005,
+                                              exit_threshold_pct: float = 0.000,
+                                              price_col: str = "Close") -> pd.DataFrame:
+    """Create a Prophet-only long/short strategy from predicted price edge."""
+    if not backtest_series:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(backtest_series).copy()
+    if df.empty or "actual" not in df.columns or "predicted" not in df.columns:
+        return pd.DataFrame()
+
+    df.rename(columns={"actual": price_col}, inplace=True)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df["predicted"] = pd.to_numeric(df["predicted"], errors="coerce")
+    df = df.dropna(subset=["date", price_col, "predicted"]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        return df
+
+    df["predicted_edge_pct"] = (df["predicted"] / df[price_col] - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    signals, reasons, positions = [], [], []
+    position = "CASH"
+    entry_price = None
+    entry_date = None
+
+    for _, row in df.iterrows():
+        px = float(row[price_col])
+        edge = float(row["predicted_edge_pct"])
+        dt = row["date"]
+        sig = "HOLD"
+        reason = "WAITING_FOR_DIRECTIONAL_EDGE"
+
+        desired = "CASH"
+        if edge >= entry_threshold_pct:
+            desired = "LONG"
+        elif edge <= -entry_threshold_pct:
+            desired = "SHORT"
+        else:
+            reason = "NO_DIRECTIONAL_EDGE"
+
+        if position == "CASH":
+            if desired == "LONG":
+                sig = "BUY"
+                reason = "PROPHET_LONG_EDGE"
+                position = "LONG"
+                entry_price = px
+                entry_date = dt
+            elif desired == "SHORT":
+                sig = "SELL"
+                reason = "PROPHET_SHORT_EDGE"
+                position = "SHORT"
+                entry_price = px
+                entry_date = dt
+
+        elif position == "LONG":
+            hold_days = int((dt - entry_date).days) if entry_date is not None else 0
+            ret = (px / entry_price - 1.0) if entry_price else 0.0
+            if desired == "SHORT":
+                sig = "SELL"
+                reason = "REVERSE_LONG_TO_SHORT"
+                position = "SHORT"
+                entry_price = px
+                entry_date = dt
+            elif edge <= exit_threshold_pct:
+                sig = "CASH"
+                reason = "EXIT_LONG_EDGE_FADED"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif STOP_LOSS_PCT > 0 and ret <= -STOP_LOSS_PCT:
+                sig = "CASH"
+                reason = "EXIT_LONG_STOP_LOSS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif TAKE_PROFIT_PCT > 0 and ret >= TAKE_PROFIT_PCT:
+                sig = "CASH"
+                reason = "EXIT_LONG_TAKE_PROFIT"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif hold_days >= MAX_HOLD_DAYS:
+                sig = "CASH"
+                reason = "EXIT_LONG_MAX_HOLD_DAYS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            else:
+                reason = "HOLDING_LONG"
+
+        elif position == "SHORT":
+            hold_days = int((dt - entry_date).days) if entry_date is not None else 0
+            ret = ((entry_price - px) / entry_price) if entry_price and px > 0 else 0.0
+            if desired == "LONG":
+                sig = "BUY"
+                reason = "REVERSE_SHORT_TO_LONG"
+                position = "LONG"
+                entry_price = px
+                entry_date = dt
+            elif edge >= -exit_threshold_pct:
+                sig = "CASH"
+                reason = "EXIT_SHORT_EDGE_FADED"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif STOP_LOSS_PCT > 0 and ret <= -STOP_LOSS_PCT:
+                sig = "CASH"
+                reason = "EXIT_SHORT_STOP_LOSS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif TAKE_PROFIT_PCT > 0 and ret >= TAKE_PROFIT_PCT:
+                sig = "CASH"
+                reason = "EXIT_SHORT_TAKE_PROFIT"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            elif hold_days >= MAX_HOLD_DAYS:
+                sig = "CASH"
+                reason = "EXIT_SHORT_MAX_HOLD_DAYS"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
+            else:
+                reason = "HOLDING_SHORT"
+
+        signals.append(sig)
+        reasons.append(reason)
+        positions.append(position)
+
+    df["signal"] = signals
+    df["strategy_signal"] = signals
+    df["trade_reason"] = reasons
+    df["position_after_signal"] = positions
+    return df
+
 def signal_diagnostics(signals_df: pd.DataFrame,
                        prob_col: Optional[str] = None,
-                       backtest_result: Optional[dict] = None) -> dict:
+                       backtest_result: Optional[dict] = None,
+                       mode: str = "long_only") -> dict:
     """Small, UI-friendly explanation of why a model did or did not trade."""
     if signals_df is None or signals_df.empty:
         return {
@@ -1202,6 +1530,7 @@ def signal_diagnostics(signals_df: pd.DataFrame,
             "entry_threshold": round(CONFIDENCE_THRESHOLD, 3),
             "exit_threshold": round(EXIT_PROB_THRESHOLD, 3),
             "message": "No signal data available",
+            "mode": mode,
         }
 
     df = signals_df.copy()
@@ -1225,10 +1554,15 @@ def signal_diagnostics(signals_df: pd.DataFrame,
     sell_signals = int((sigs == "SELL").sum())
     completed = int(bt.get("n_trades", 0) or 0)
 
+    is_long_short = str(mode).lower() == "long_short"
+    directional_signals = buy_signals + sell_signals if is_long_short else buy_signals
+
     if completed == 0 and high_probability_days == 0:
         message = "No entries: probability never crossed the entry threshold."
-    elif completed == 0 and buy_signals == 0 and flat_gate_days > 0:
+    elif completed == 0 and directional_signals == 0 and flat_gate_days > 0:
         message = "Entries were blocked because Prophet trend was flat."
+    elif completed == 0 and directional_signals == 0 and is_long_short:
+        message = "No long/short entries: timing was high only when the trend gate did not allow a directional trade."
     elif completed == 0 and buy_signals == 0:
         message = "No long entries: timing was high only during flat/downtrend days."
     elif completed < 3:
@@ -1254,6 +1588,7 @@ def signal_diagnostics(signals_df: pd.DataFrame,
         "take_profit_pct": round(TAKE_PROFIT_PCT * 100, 2),
         "max_hold_days": int(MAX_HOLD_DAYS),
         "message": message,
+        "mode": mode,
     }
 
 # -- Generic backtester  --
@@ -1445,6 +1780,254 @@ def run_backtest(signals_df: pd.DataFrame,
         ],
     }
 
+
+def run_long_short_backtest(signals_df: pd.DataFrame,
+                            price_col: str = "Close",
+                            initial_capital: float = 100_000) -> dict:
+    """
+    Directional long/short backtest.
+
+    BUY  = be long / reverse from short to long
+    SELL = be short / reverse from long to short
+    CASH = close any open position and stay in cash
+    HOLD = keep the current state unchanged
+
+    This is shown separately from the long-only backtest because short-selling
+    changes the meaning of SELL. In the beginner long-only mode, SELL means
+    "exit/avoid". In this mode, SELL means an active short position that gains
+    if the price falls and loses if the price rises.
+    """
+    if signals_df is None or signals_df.empty or price_col not in signals_df.columns:
+        return {
+            "total_return": None,
+            "bh_total_return": None,
+            "sharpe": None,
+            "bh_sharpe": None,
+            "max_drawdown": None,
+            "bh_max_drawdown": None,
+            "win_rate": None,
+            "profit_factor": None,
+            "n_trades": 0,
+            "n_entries": 0,
+            "n_exits": 0,
+            "long_entries": 0,
+            "short_entries": 0,
+            "cash_exits": 0,
+            "buy_signals": 0,
+            "sell_signals": 0,
+            "hold_signals": 0,
+            "status": "NO_DATA",
+            "status_reason": "Backtest data unavailable",
+            "portfolio_timeline": [],
+            "mode": "long_short",
+        }
+
+    df = signals_df.copy()
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date", price_col]).sort_values("date").reset_index(drop=True)
+
+    if df.empty:
+        return {
+            "total_return": None,
+            "bh_total_return": None,
+            "sharpe": None,
+            "bh_sharpe": None,
+            "max_drawdown": None,
+            "bh_max_drawdown": None,
+            "win_rate": None,
+            "profit_factor": None,
+            "n_trades": 0,
+            "n_entries": 0,
+            "n_exits": 0,
+            "long_entries": 0,
+            "short_entries": 0,
+            "cash_exits": 0,
+            "buy_signals": 0,
+            "sell_signals": 0,
+            "hold_signals": 0,
+            "status": "NO_DATA",
+            "status_reason": "Backtest data unavailable",
+            "portfolio_timeline": [],
+            "mode": "long_short",
+        }
+
+    prices = df[price_col].astype(float).to_numpy()
+    signals = df.get("signal", pd.Series(["HOLD"] * len(df))).fillna("HOLD").astype(str).str.upper().to_numpy()
+    dates = pd.to_datetime(df["date"].values)
+
+    buy_signals = int(np.sum(signals == "BUY"))
+    sell_signals = int(np.sum(signals == "SELL"))
+    hold_signals = int(np.sum(signals == "HOLD"))
+    cash_signals = int(np.sum(signals == "CASH"))
+
+    equity = float(initial_capital)
+    position = "CASH"  # CASH | LONG | SHORT
+    entry_px = None
+    entry_date = None
+    entry_equity = None
+    pvals, trades, completed = [], [], []
+
+    def current_value(px: float) -> float:
+        nonlocal equity, position, entry_px, entry_equity
+        if position == "LONG" and entry_px:
+            return float(entry_equity * (px / entry_px))
+        if position == "SHORT" and entry_px:
+            # Full-equity short model. Value rises when price falls and can fall
+            # sharply if price rises; clamp only to avoid nonsensical negative
+            # chart values after extreme moves.
+            return float(max(entry_equity * (2.0 - px / entry_px), 0.0))
+        return float(equity)
+
+    def close_position(px: float, dt, action: str):
+        nonlocal equity, position, entry_px, entry_date, entry_equity, completed, trades
+        if position == "CASH":
+            return
+        exit_value = current_value(px)
+        if position == "LONG":
+            pnl_pct = (px / entry_px - 1.0) * 100 if entry_px else 0.0
+        else:
+            pnl_pct = ((entry_px - px) / entry_px) * 100 if entry_px and px > 0 else 0.0
+        completed.append({
+            "side": position,
+            "entry_date": entry_date,
+            "exit_date": dt,
+            "entry": entry_px,
+            "exit": px,
+            "pnl_pct": pnl_pct,
+        })
+        trades.append({"date": dt, "action": action, "price": px, "side": position})
+        equity = exit_value
+        position = "CASH"
+        entry_px = None
+        entry_date = None
+        entry_equity = None
+
+    def open_position(side: str, px: float, dt):
+        nonlocal position, entry_px, entry_date, entry_equity, trades, equity
+        position = side
+        entry_px = px
+        entry_date = dt
+        entry_equity = equity
+        trades.append({"date": dt, "action": "BUY" if side == "LONG" else "SELL_SHORT", "price": px, "side": side})
+
+    for i, (px, sig) in enumerate(zip(prices, signals)):
+        px = float(px)
+        dt = dates[i]
+        if not np.isfinite(px) or px <= 0:
+            pvals.append(current_value(px if np.isfinite(px) else 0.0))
+            continue
+
+        if sig == "BUY":
+            if position == "SHORT":
+                close_position(px, dt, "COVER_SHORT")
+            if position == "CASH":
+                open_position("LONG", px, dt)
+        elif sig == "SELL":
+            if position == "LONG":
+                close_position(px, dt, "SELL_LONG")
+            if position == "CASH":
+                open_position("SHORT", px, dt)
+        elif sig == "CASH":
+            if position == "LONG":
+                close_position(px, dt, "SELL_LONG")
+            elif position == "SHORT":
+                close_position(px, dt, "COVER_SHORT")
+
+        pvals.append(current_value(px))
+
+    if position != "CASH":
+        px = float(prices[-1])
+        dt = dates[-1]
+        close_position(px, dt, "CLOSE_END")
+        pvals[-1] = equity
+
+    pvals = np.array(pvals, dtype=float)
+    bh = (initial_capital / prices[0]) * prices
+
+    def safe_sharpe(rets: np.ndarray) -> Optional[float]:
+        if rets is None or len(rets) < 2 or not np.isfinite(rets).any():
+            return None
+        ex = rets - 0.065 / 252
+        s = float(np.nanstd(ex))
+        if s <= 1e-8:
+            return None
+        return float(np.nanmean(ex) / s * np.sqrt(252))
+
+    def max_dd(v: np.ndarray) -> Optional[float]:
+        if v is None or len(v) == 0:
+            return None
+        pk = float(v[0])
+        w = 0.0
+        for x in v:
+            x = float(x)
+            pk = max(pk, x)
+            w = max(w, (pk - x) / (pk + 1e-9))
+        return float(w * 100)
+
+    dr = np.diff(pvals) / (pvals[:-1] + 1e-9) if len(pvals) > 1 else np.array([])
+    bdr = np.diff(bh) / (bh[:-1] + 1e-9) if len(bh) > 1 else np.array([])
+
+    n_trades = len(completed)
+    pnl_pcts = [float(t["pnl_pct"]) for t in completed]
+    wins = [p for p in pnl_pcts if p > 0]
+    losses = [abs(p) for p in pnl_pcts if p < 0]
+    long_entries = int(sum(1 for t in trades if t.get("action") == "BUY"))
+    short_entries = int(sum(1 for t in trades if t.get("action") == "SELL_SHORT"))
+    cash_exits = int(sum(1 for t in trades if t.get("action") in {"SELL_LONG", "COVER_SHORT", "CLOSE_END"}))
+
+    if n_trades == 0:
+        if buy_signals == 0 and sell_signals == 0:
+            status_reason = "No BUY or SHORT signal triggered"
+        else:
+            status_reason = "No completed directional trade cycle"
+        status = "NO_TRADES"
+        sharpe = None
+        win_rate = None
+        profit_factor = None
+    else:
+        status = "ACTIVE"
+        status_reason = f"{n_trades} completed directional trade{'s' if n_trades != 1 else ''}"
+        sharpe = safe_sharpe(dr)
+        win_rate = float(len(wins) / n_trades * 100)
+        if losses:
+            profit_factor = float(sum(wins) / (sum(losses) + 1e-9))
+        elif wins:
+            profit_factor = None
+        else:
+            profit_factor = 0.0
+
+    def rnd(x, nd=2):
+        return None if x is None or not np.isfinite(float(x)) else round(float(x), nd)
+
+    return {
+        "total_return": rnd((pvals[-1] / initial_capital - 1) * 100, 2),
+        "bh_total_return": rnd((bh[-1] / initial_capital - 1) * 100, 2),
+        "sharpe": rnd(sharpe, 2),
+        "bh_sharpe": rnd(safe_sharpe(bdr), 2),
+        "max_drawdown": rnd(max_dd(pvals), 2),
+        "bh_max_drawdown": rnd(max_dd(bh), 2),
+        "win_rate": rnd(win_rate, 1),
+        "profit_factor": rnd(profit_factor, 2),
+        "n_trades": int(n_trades),
+        "n_entries": int(long_entries + short_entries),
+        "n_exits": int(cash_exits),
+        "long_entries": long_entries,
+        "short_entries": short_entries,
+        "cash_exits": cash_exits,
+        "buy_signals": buy_signals,
+        "sell_signals": sell_signals,
+        "hold_signals": hold_signals,
+        "cash_signals": cash_signals,
+        "status": status,
+        "status_reason": status_reason,
+        "mode": "long_short",
+        "portfolio_timeline": [
+            {"date": str(d.date()), "strategy": round(float(v), 2), "bh": round(float(b), 2)}
+            for d, v, b in zip(dates, pvals, bh)
+        ],
+    }
+
 # -- Background worker --
 
 def _run_pipeline(job_id: str, symbol: str, target_date: str,
@@ -1575,8 +2158,11 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- XGBoost --
         xgb_result = {"signals":None,"metrics":{"accuracy":None,"roc_auc":None}}
         xgb_bt     = None
+        xgb_bt_long_short = None
         xgb_strategy_sigs = None
+        xgb_long_short_sigs = None
         xgb_diag   = {}
+        xgb_diag_long_short = {}
         xgb_df_feat= None
         try:
             import xgboost  # noqa — check availability
@@ -1592,7 +2178,17 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                     model_name="XGBoost",
                 )
                 xgb_bt = run_backtest(xgb_strategy_sigs)
-                xgb_diag = signal_diagnostics(xgb_strategy_sigs, "entry_prob", xgb_bt)
+                xgb_diag = signal_diagnostics(xgb_strategy_sigs, "entry_prob", xgb_bt, mode="long_only")
+
+                xgb_long_short_sigs = build_long_short_strategy_signals(
+                    xgb_result["signals"],
+                    prob_col="prob_good_entry",
+                    model_name="XGBoost",
+                )
+                xgb_bt_long_short = run_long_short_backtest(xgb_long_short_sigs)
+                xgb_diag_long_short = signal_diagnostics(
+                    xgb_long_short_sigs, "entry_prob", xgb_bt_long_short, mode="long_short"
+                )
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] XGBoost error (non-fatal): {e}")
         if cancelled(): return
@@ -1600,8 +2196,11 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- LSTM --
         lstm_result = {"signals":None,"metrics":{"accuracy":None,"roc_auc":None},"lstm_reliable":False}
         lstm_bt     = None
+        lstm_bt_long_short = None
         lstm_strategy_sigs = None
+        lstm_long_short_sigs = None
         lstm_diag   = {}
+        lstm_diag_long_short = {}
         try:
             import torch  # noqa — check availability
             if xgb_df_feat is not None and len(xgb_df_feat)>=SEQUENCE_LENGTH+TEST_DAYS+20:
@@ -1615,7 +2214,17 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                         model_name="LSTM",
                     )
                     lstm_bt = run_backtest(lstm_strategy_sigs)
-                    lstm_diag = signal_diagnostics(lstm_strategy_sigs, "entry_prob", lstm_bt)
+                    lstm_diag = signal_diagnostics(lstm_strategy_sigs, "entry_prob", lstm_bt, mode="long_only")
+
+                    lstm_long_short_sigs = build_long_short_strategy_signals(
+                        lstm_result["signals"],
+                        prob_col="prob_good_entry",
+                        model_name="LSTM",
+                    )
+                    lstm_bt_long_short = run_long_short_backtest(lstm_long_short_sigs)
+                    lstm_diag_long_short = signal_diagnostics(
+                        lstm_long_short_sigs, "entry_prob", lstm_bt_long_short, mode="long_short"
+                    )
         except Exception as e:
             logger.warning(f"[PREDICT {job_id}] LSTM error (non-fatal): {e}")
         if cancelled(): return
@@ -1624,7 +2233,10 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         progress(78, "Combining XGBoost + LSTM into Ensemble (tiered signals)…")
         ens_sigs         = None; ens_bt = None
         ens_strategy_sigs = None
+        ens_long_short_sigs = None
+        ens_bt_long_short = None
         ens_diag         = {}
+        ens_diag_long_short = {}
         current_signal   = "HOLD"
         current_strength = "—"
         current_entry_probability = None
@@ -1651,7 +2263,17 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                     model_name="Ensemble",
                 )
                 ens_bt = run_backtest(ens_strategy_sigs)
-                ens_diag = signal_diagnostics(ens_strategy_sigs, "entry_prob", ens_bt)
+                ens_diag = signal_diagnostics(ens_strategy_sigs, "entry_prob", ens_bt, mode="long_only")
+
+                ens_long_short_sigs = build_long_short_strategy_signals(
+                    ens_sigs,
+                    prob_col="ensemble_prob",
+                    model_name="Ensemble",
+                )
+                ens_bt_long_short = run_long_short_backtest(ens_long_short_sigs)
+                ens_diag_long_short = signal_diagnostics(
+                    ens_long_short_sigs, "entry_prob", ens_bt_long_short, mode="long_short"
+                )
 
                 last = ens_sigs.iloc[-1]
                 current_signal   = str(last["signal"])
@@ -1690,11 +2312,19 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         # -- Prophet-only backtest --
         progress(84, "Running Prophet strategy backtest…")
         prophet_bt: dict = {}
+        prophet_bt_long_short: dict = {}
         prophet_diag: dict = {}
+        prophet_diag_long_short: dict = {}
         if prophet_val.get("backtest_series"):
             prophet_strategy_sigs = build_prophet_strategy_signals(prophet_val["backtest_series"])
             prophet_bt = run_backtest(prophet_strategy_sigs)
-            prophet_diag = signal_diagnostics(prophet_strategy_sigs, None, prophet_bt)
+            prophet_diag = signal_diagnostics(prophet_strategy_sigs, None, prophet_bt, mode="long_only")
+
+            prophet_long_short_sigs = build_prophet_long_short_strategy_signals(prophet_val["backtest_series"])
+            prophet_bt_long_short = run_long_short_backtest(prophet_long_short_sigs)
+            prophet_diag_long_short = signal_diagnostics(
+                prophet_long_short_sigs, None, prophet_bt_long_short, mode="long_short"
+            )
 
         # -- Assemble response --
         progress(90, "Assembling forecast arrays…")
@@ -1761,12 +2391,14 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             "prophet_metrics": {k:v for k,v in prophet_val.items() if k!="backtest_series"},
             "xgb_metrics":  xgb_result["metrics"],
             "lstm_metrics": lstm_result["metrics"],
+            # Backward-compatible default: long-only mode.
             "backtest": {
                 "prophet":  {k:v for k,v in prophet_bt.items()  if k!="portfolio_timeline"},
                 "xgboost":  {k:v for k,v in xgb_bt.items()      if k!="portfolio_timeline"} if xgb_bt  else {},
                 "lstm":     {k:v for k,v in lstm_bt.items()      if k!="portfolio_timeline"} if lstm_bt  else {},
                 "ensemble": {k:v for k,v in ens_bt.items()       if k!="portfolio_timeline"} if ens_bt  else {},
                 "buy_hold_return": (xgb_bt or lstm_bt or ens_bt or prophet_bt or {}).get("bh_total_return"),
+                "mode": "long_only",
             },
             "backtest_timelines": {
                 "prophet":  prophet_bt.get("portfolio_timeline",[]),
@@ -1779,6 +2411,54 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 "xgboost": xgb_diag,
                 "lstm": lstm_diag,
                 "ensemble": ens_diag,
+            },
+
+            # New two-mode backtest payload for the dashboard toggle.
+            "backtest_modes": {
+                "long_only": {
+                    "prophet":  {k:v for k,v in prophet_bt.items()  if k!="portfolio_timeline"},
+                    "xgboost":  {k:v for k,v in xgb_bt.items()      if k!="portfolio_timeline"} if xgb_bt  else {},
+                    "lstm":     {k:v for k,v in lstm_bt.items()      if k!="portfolio_timeline"} if lstm_bt  else {},
+                    "ensemble": {k:v for k,v in ens_bt.items()       if k!="portfolio_timeline"} if ens_bt  else {},
+                    "buy_hold_return": (xgb_bt or lstm_bt or ens_bt or prophet_bt or {}).get("bh_total_return"),
+                    "mode": "long_only",
+                },
+                "long_short": {
+                    "prophet":  {k:v for k,v in prophet_bt_long_short.items()  if k!="portfolio_timeline"},
+                    "xgboost":  {k:v for k,v in xgb_bt_long_short.items()      if k!="portfolio_timeline"} if xgb_bt_long_short  else {},
+                    "lstm":     {k:v for k,v in lstm_bt_long_short.items()      if k!="portfolio_timeline"} if lstm_bt_long_short  else {},
+                    "ensemble": {k:v for k,v in ens_bt_long_short.items()       if k!="portfolio_timeline"} if ens_bt_long_short  else {},
+                    "buy_hold_return": (xgb_bt_long_short or lstm_bt_long_short or ens_bt_long_short or prophet_bt_long_short or {}).get("bh_total_return"),
+                    "mode": "long_short",
+                },
+            },
+            "backtest_timelines_modes": {
+                "long_only": {
+                    "prophet":  prophet_bt.get("portfolio_timeline",[]),
+                    "xgboost":  xgb_bt.get("portfolio_timeline",[])  if xgb_bt  else [],
+                    "lstm":     lstm_bt.get("portfolio_timeline",[])  if lstm_bt  else [],
+                    "ensemble": ens_bt.get("portfolio_timeline",[])   if ens_bt  else [],
+                },
+                "long_short": {
+                    "prophet":  prophet_bt_long_short.get("portfolio_timeline",[]),
+                    "xgboost":  xgb_bt_long_short.get("portfolio_timeline",[])  if xgb_bt_long_short  else [],
+                    "lstm":     lstm_bt_long_short.get("portfolio_timeline",[])  if lstm_bt_long_short  else [],
+                    "ensemble": ens_bt_long_short.get("portfolio_timeline",[])   if ens_bt_long_short  else [],
+                },
+            },
+            "signal_diagnostics_modes": {
+                "long_only": {
+                    "prophet": prophet_diag,
+                    "xgboost": xgb_diag,
+                    "lstm": lstm_diag,
+                    "ensemble": ens_diag,
+                },
+                "long_short": {
+                    "prophet": prophet_diag_long_short,
+                    "xgboost": xgb_diag_long_short,
+                    "lstm": lstm_diag_long_short,
+                    "ensemble": ens_diag_long_short,
+                },
             },
             "strategy_settings": {
                 "entry_threshold": round(CONFIDENCE_THRESHOLD, 3),
