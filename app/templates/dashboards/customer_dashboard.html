@@ -3575,7 +3575,7 @@
                     <div class="predict-loading" id="predictLoading">
                         <div class="predict-spinner"></div>
                         <div class="predict-loading-text" id="predictLoadingText">Starting prediction pipeline…</div>
-                        <div class="predict-loading-sub" id="predictLoadingSub">This can take longer on the first run. Prophet × 2 + XGBoost + Global Nifty-50 LSTM + Ensemble are training.</div>
+                        <div class="predict-loading-sub" id="predictLoadingSub">Prophet and XGBoost run now; Global LSTM loads from app/static/models/global_lstm when a saved model exists.</div>
                         <!-- Progress bar -->
                         <div style="width:100%;max-width:360px;background:#f0e0ff;border-radius:8px;height:8px;margin-top:8px;overflow:hidden;">
                             <div id="predictProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#f093fb,#f5576c);border-radius:8px;transition:width 0.6s ease;"></div>
@@ -3702,7 +3702,7 @@
 
                                 <!-- LSTM metrics -->
                                 <div class="predict-metrics-title">
-                                    🧠 Global LSTM — Nifty-50 Sequence Classifier
+                                    🧠 Saved Global LSTM — NSE Sequence Classifier
                                     <span id="predLSTMReliabilityNote"></span>
                                 </div>
                                 <div class="predict-metrics-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
@@ -3728,7 +3728,7 @@
                                     </div>
                                 </div>
                                 <p style="font-size:11px;color:#aaa;padding:0 0 8px 0;">
-                                    ℹ️ XGBoost predicts binary timing quality. The Global LSTM now learns from Nifty-50 + target-stock sequences and predicts three classes:
+                                    ℹ️ XGBoost predicts binary timing quality. The saved Global LSTM is trained offline across many NSE/Nifty-style stocks and predicts three classes:
                                     <strong>CASH</strong>, <strong>LONG setup</strong>, and <strong>SHORT setup</strong>.
                                     Active ROC-AUC checks whether the global sequence model can separate trade setups from cash days.
                                     Prophet predicts the actual price level.
@@ -3799,7 +3799,7 @@
                                 </div>
                                 <div class="ensemble-explain-grid">
                                     <div class="ensemble-explain-card"><strong>XGBoost prob</strong><span>Short-term timing score based on technical features.</span></div>
-                                    <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Global sequence-pattern timing score trained on Nifty-50 + target-stock history. It is used only when validation quality is acceptable.</span></div>
+                                    <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Saved global sequence-pattern timing score trained offline. It now uses model-specific calibrated thresholds and is used only when validation quality is acceptable.</span></div>
                                     <div class="ensemble-explain-card"><strong>Signal</strong><span>SELL means bearish/avoid in the raw ML signal. If the stock is in a strong bullish regime, the main card may show WAIT / OVEREXTENDED instead. Short-side trading appears only inside Advanced Hypothetical backtest mode.</span></div>
                                 </div>
                                 <div class="predict-metrics-title" style="margin-top:8px;">Recent Signals (last 15 days)</div>
@@ -5676,7 +5676,7 @@ function _startPolling(jobId) {
             if (txtEl) txtEl.textContent = msg || 'Running…';
             if (subEl && pct < 50) subEl.textContent = 'Prophet training (30–60 s each pass)…';
             else if (subEl && pct < 65) subEl.textContent = 'XGBoost: feature engineering + training…';
-            else if (subEl && pct < 80) subEl.textContent = 'LSTM: training global Nifty-50 sequence model…';
+            else if (subEl && pct < 80) subEl.textContent = 'LSTM: loading saved global sequence model…';
             else if (subEl && pct < 90) subEl.textContent = 'Combining models into Ensemble…';
             else if (subEl) subEl.textContent = 'Almost done — assembling results…';
 
@@ -5772,7 +5772,7 @@ function openEnsembleInfo() {
         'The ensemble combines entry-quality timing probabilities with trend context. Prophet direction is shown separately; when Prophet validation quality is poor, it is not used as a hard gate.',
         [
             {title:'XGB prob', text:'XGBoost probability that the current setup is good enough for a fresh entry based on engineered technical indicators.'},
-            {title:'LSTM prob', text:'Global LSTM probability from Nifty-50-trained sequence patterns. If validation is weak, it is excluded from ensemble weight instead of weakening the final signal.'},
+            {title:'LSTM prob', text:'Saved Global LSTM probability from offline-trained sequence patterns. If validation is weak or the saved model is stale/missing, it is excluded from ensemble weight.'},
             {title:'Ensemble', text:'Weighted entry-quality probability. XGBoost is used alone when LSTM reliability is weak; Global LSTM contributes only after it clears validation gates.'},
             {title:'Signal', text:'BUY/SELL is shown in investor-friendly language. When Prophet validation quality is poor, Prophet direction is not allowed to hard-block a strong bullish-regime setup. Bearish signals in a strong bullish regime become WAIT / OVEREXTENDED instead of AVOID / EXIT.'},
             {title:'STRONG / NORMAL', text:'STRONG means both XGBoost and LSTM crossed the threshold. NORMAL means the weighted ensemble crossed it.'},
@@ -5956,8 +5956,10 @@ function renderPredictionResults(data) {
     }
 
     const rlNote = document.getElementById('predLSTMReliabilityNote');
-    if (lm.accuracy === null) {
-        rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Not run (torch not installed)</span>';
+    if (lm.model_status === 'missing_or_stale_saved_model' || lm.model_status === 'service_import_failed') {
+        rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Saved model missing/stale — run train_global_lstm.py</span>';
+    } else if (lm.accuracy === null) {
+        rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Not run / unavailable</span>';
     } else if (!data.lstm_reliable) {
         rlNote.innerHTML = '<span class="lstm-reliability-note warn">⚠️ Low reliability — excluded from Ensemble weight</span>';
         if (lm.validation_auc !== null && lm.validation_auc !== undefined) {
