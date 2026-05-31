@@ -1949,6 +1949,7 @@
     .signal-badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
     .signal-badge.BUY  { background: #d4edda; color: #155724; }
     .signal-badge.SELL { background: #f8d7da; color: #721c24; }
+    .signal-badge.WAIT { background: #e8f3ff; color: #1e5f8f; border: 1px solid #b7dcff; }
     .signal-badge.HOLD { background: #fff3cd; color: #856404; }
     .signal-badge.PROPHET-FALLBACK { background: #fff3cd; color: #856404; border: 1px dashed #ffc107; font-size: 12px; }
 
@@ -3636,7 +3637,7 @@
                             <div class="flat-forecast-warn" id="predFlatForecastWarn">
                                 <span class="warn-icon">⚠️</span>
                                 <div>
-                                    <strong>Sideways / flat forecast detected</strong> - Prophet's predicted price range over the full horizon is only <strong id="predFlatRangePct">—</strong>, which is less than 2% of the current price. This means Prophet sees no strong directional trend and is predicting a relatively flat market. The BUY/SELL signal above (if showing) is based on a very small predicted move and should be treated with extra caution. Consider this effectively a <strong>HOLD</strong> market outlook.
+                                    <strong>Sideways / flat forecast detected</strong> - Prophet's predicted price range over the full horizon is only <strong id="predFlatRangePct">—</strong>, which is less than 2% of the current price. This means Prophet sees no strong directional trend and is predicting a relatively flat market. The BUY/SELL/WAIT signal above (if showing) is based on a very small predicted move and should be treated with extra caution. Consider this effectively a <strong>HOLD</strong> market outlook.
                                 </div>
                             </div>
                             <!-- Checkpoint table -->
@@ -3749,14 +3750,14 @@
                                     <div class="predict-metrics-title">📊 Simulated Backtest (₹1,00,000 initial capital)</div>
                                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
                                         <div class="bt-mode-toggle" aria-label="Backtest mode">
-                                            <button type="button" class="bt-mode-btn active" data-bt-mode="long_only" onclick="switchBacktestMode('long_only')">Long-only</button>
-                                            <button type="button" class="bt-mode-btn" data-bt-mode="long_short" onclick="switchBacktestMode('long_short')">Long/Short</button>
+                                            <button type="button" class="bt-mode-btn active" data-bt-mode="trend_investor" onclick="switchBacktestMode('trend_investor')">Trend Investor</button>
+                                            <button type="button" class="bt-mode-btn" data-bt-mode="long_short" onclick="switchBacktestMode('long_short')">Advanced Hypothetical</button>
                                         </div>
                                         <button type="button" class="predict-info-btn" onclick="openBacktestInfo()" title="Explain this backtest table">i</button>
                                     </div>
                                 </div>
                                 <div class="beginner-note" id="backtestBeginnerNote">
-                                    <span id="backtestModeExplanation">A long-only backtest asks: <strong>if this model bought only on BUY signals and exited/avoided on SELL signals, what would ₹1,00,000 look like now?</strong></span>
+                                    <span id="backtestModeExplanation">Trend Investor mode asks: <strong>if this stock entered/held during strong bullish regimes and exited after trend breakdowns, what would ₹1,00,000 look like now?</strong></span>
                                 </div>
                                 <table class="backtest-compare-table">
                                     <thead><tr>
@@ -3775,12 +3776,12 @@
                                     <div class="predict-metrics-title">🧭 Signal Diagnostics</div>
                                 </div>
                                 <div class="beginner-note">
-                                    <span id="diagnosticsModeExplanation">These counts explain why a model traded or stayed idle. In long-only mode, BUY enters a position and SELL exits. XGBoost, LSTM and Ensemble act as <strong>entry-quality</strong> models; exits are handled separately by probability drop, trend change, stop-loss, take-profit and max holding-days rules.</span>
+                                    <span id="diagnosticsModeExplanation">These counts explain why Trend Investor mode entered, held, or stayed in cash. BUY means enter/hold a strong bullish regime. SELL means exit after confirmed trend weakness. Bearish ML signals inside a strong bullish regime are treated as caution, not automatic exit.</span>
                                 </div>
                                 <div class="signal-diagnostics-grid" id="signalDiagnosticsGrid"></div>
 
                                 <p style="font-size:11px;color:#aaa;margin-top:10px;">
-                                    ⚠️ Backtest on ~<span id="predTestDaysNote">252</span>-day held-out test period when enough history exists. No slippage, taxes, borrowing cost, margin rules, or transaction costs modelled. Use Long/Short only as a learning simulation. Not financial advice.
+                                    ⚠️ Backtest on ~<span id="predTestDaysNote">252</span>-day held-out test period when enough history exists. No slippage, taxes, borrowing cost, margin rules, or transaction costs modelled. Advanced Hypothetical mode is a learning simulation; it is not a normal beginner recommendation. Not financial advice.
                                 </p>
                             </div>
                         </div>
@@ -3799,7 +3800,7 @@
                                 <div class="ensemble-explain-grid">
                                     <div class="ensemble-explain-card"><strong>XGBoost prob</strong><span>Short-term timing score based on technical features.</span></div>
                                     <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Sequence-pattern timing score from recent price behaviour. It is used only when validation quality is acceptable.</span></div>
-                                    <div class="ensemble-explain-card"><strong>Signal</strong><span>BUY/SELL only appears when probability and Prophet direction agree.</span></div>
+                                    <div class="ensemble-explain-card"><strong>Signal</strong><span>SELL means bearish/avoid in the raw ML signal. If the stock is in a strong bullish regime, the main card may show WAIT / OVEREXTENDED instead. Short-side trading appears only inside Advanced Hypothetical backtest mode.</span></div>
                                 </div>
                                 <div class="predict-metrics-title" style="margin-top:8px;">Recent Signals (last 15 days)</div>
                                 <table class="ens-signal-table">
@@ -4022,7 +4023,7 @@
     let currentStock = null;
     let currentPeriod = '1d';
     let currentPredictionResult = null;
-    let currentBacktestMode = 'long_only';
+    let currentBacktestMode = 'trend_investor';
     let stockChart = null;
     let portfolioHoldings = [];  // Store holdings globally
     let currentQuoteData = null;  // Store current quote data for accurate 1D calculations
@@ -5751,11 +5752,11 @@ function openBacktestInfo() {
         'How to read the simulated backtest',
         'This table is a simple historical simulation, not a guarantee of future profit.',
         [
-            {title:'Long-only mode', text:'BUY opens a normal long position. SELL only exits/avoids. If the model says SELL while no position is open, the strategy stays in cash.'},
-            {title:'Long/Short mode', text:'BUY opens a long position and SELL opens a short position. A short position gains when price falls and loses when price rises. This is useful for understanding bearish signals, but it ignores borrowing cost, margin rules and execution limits.'},
+            {title:'Trend Investor mode', text:'Beginner-friendly long-only mode. It enters/holds when the stock is in a strong bullish regime and exits only after the trend weakens. It replaces the old strict long-only mode that often stayed cash while bullish stocks kept rising.'},
+            {title:'Advanced Hypothetical mode', text:'A learning-only simulation: BUY opens a long position and SELL opens a hypothetical short position. Strong bullish-regime filter blocks fresh SHORT entries so overbought bullish stocks are not blindly shorted. It ignores borrowing cost, margin rules and execution limits.'},
             {title:'Return %', text:'How much ₹1,00,000 would have gained or lost during the held-out test window. 12% means ₹1,00,000 became roughly ₹1,12,000.'},
-            {title:'Entry-quality model', text:'XGBoost, LSTM and Ensemble decide whether the setup is strong enough to enter. They are not forced to trade every day.'},
-            {title:'Separate exit rules', text:'The strategy can exit because probability drops, trend changes, stop-loss hits, take-profit hits, or max holding days is reached.'},
+            {title:'Trend-regime entry', text:'Trend Investor mode does not wait only for a fresh ML BUY signal. It can enter an already-strong uptrend, which makes it more useful for stocks that have already started a powerful rally.'},
+            {title:'Exit rule', text:'The strategy exits after the bullish regime breaks for a few confirmed days. Short-term overextended signals inside a strong uptrend are treated as caution, not automatic exit.'},
             {title:'Sharpe', text:'Return adjusted for volatility. Higher is better, but it is unreliable when there are only a few completed trades.'},
             {title:'Max DD %', text:'Maximum drawdown: the biggest fall from a previous portfolio high. Lower is safer.'},
             {title:'Win Rate', text:'Percentage of completed trades that ended in profit. This is meaningful only when there are enough trades.'},
@@ -5768,14 +5769,14 @@ function openBacktestInfo() {
 function openEnsembleInfo() {
     openPredictInfo(
         'How to read the ensemble tab',
-        'The ensemble combines entry-quality timing probabilities with a Prophet trend gate. Prophet direction is now shown separately instead of overriding ML HOLD.',
+        'The ensemble combines entry-quality timing probabilities with trend context. Prophet direction is shown separately; when Prophet validation quality is poor, it is not used as a hard gate.',
         [
             {title:'XGB prob', text:'XGBoost probability that the current setup is good enough for a fresh entry based on engineered technical indicators.'},
             {title:'LSTM prob', text:'LSTM probability that recent sequence patterns look favourable. If validation is weak, it is excluded from ensemble weight instead of weakening the final signal.'},
             {title:'Ensemble', text:'Weighted entry-quality probability. XGBoost is used alone when LSTM reliability is weak; LSTM contributes only after it clears validation gates.'},
-            {title:'Signal', text:'BUY/SELL appears only when entry probability crosses the threshold and Prophet trend agrees. Otherwise it remains HOLD.'},
+            {title:'Signal', text:'BUY/SELL is shown in investor-friendly language. When Prophet validation quality is poor, Prophet direction is not allowed to hard-block a strong bullish-regime setup. Bearish signals in a strong bullish regime become WAIT / OVEREXTENDED instead of AVOID / EXIT.'},
             {title:'STRONG / NORMAL', text:'STRONG means both XGBoost and LSTM crossed the threshold. NORMAL means the weighted ensemble crossed it.'},
-            {title:'FLAT GATE', text:'Timing probability was high, but Prophet trend was sideways, so the system blocked a fresh trade.'},
+            {title:'FLAT GATE', text:'Timing probability was high, but Prophet trend was sideways. If Prophet quality is poor, this gate is relaxed for strong bullish-regime setups.'},
             {title:'LOW PROB', text:'The entry-quality probability stayed below the threshold.'},
             {title:'Prophet direction', text:'Prophet\'s own price direction is informational only. It no longer replaces the ML signal.'}
         ]
@@ -5786,7 +5787,7 @@ function openEnsembleInfo() {
 function renderPredictionResults(data) {
     showPredictPanel(false);
     currentPredictionResult = data;
-    currentBacktestMode = 'long_only';
+    currentBacktestMode = 'trend_investor';
     updateBacktestModeButtons();
     updateBacktestModeText();
 
@@ -5810,11 +5811,12 @@ function renderPredictionResults(data) {
     const isLegacyProphetFallback = (data.signal_source === 'prophet_fallback');
     const isNoML = (data.signal_source === 'no_ml');
     const signalBadgeMap = {
-        BUY:  '<span class="signal-badge BUY">BUY</span>',
-        SELL: '<span class="signal-badge SELL">SELL</span>',
+        BUY:  '<span class="signal-badge BUY" title="Investor-friendly signal: enter or hold the bullish trend when risk is acceptable.">BUY / HOLD TREND</span>',
+        SELL: '<span class="signal-badge SELL" title="Investor-friendly bearish signal: avoid fresh entry or exit after trend weakness. Short-side simulation is only in Advanced Hypothetical mode.">AVOID / EXIT</span>',
+        WAIT: `<span class="signal-badge WAIT" title="${escMisc(data.regime_adjustment_reason || 'Strong bullish regime: wait for a cleaner entry instead of chasing or blindly exiting.')}">${escMisc(data.signal_display_label || 'WAIT')}</span>`,
         HOLD: '<span class="signal-badge HOLD">HOLD</span>',
     };
-    document.getElementById('predSignalContainer').innerHTML = signalBadgeMap[data.signal] || data.signal || 'HOLD';
+    document.getElementById('predSignalContainer').innerHTML = signalBadgeMap[data.signal] || escMisc(data.signal_display_label || data.signal || 'HOLD');
 
     /* Signal info bar — strength pill */
     const strPill = document.getElementById('predSignalStrengthPill');
@@ -5841,7 +5843,9 @@ function renderPredictionResults(data) {
         confEl.textContent = (data.signal_confidence * 100).toFixed(1) + '%';
         confEl.title = data.signal === 'HOLD'
             ? `HOLD confidence. Good-entry probability is ${entryProbText}.`
-            : `Active-entry confidence. Good-entry probability: ${entryProbText}.`;
+            : data.signal === 'WAIT'
+                ? `Caution confidence for WAIT / OVEREXTENDED. Good-entry probability: ${entryProbText}. This is not a BUY or short-selling recommendation.`
+                : `Active-entry confidence. Good-entry probability: ${entryProbText}.`;
         confEl.style.color = '';
     }
 
@@ -5861,9 +5865,15 @@ function renderPredictionResults(data) {
         modelSourceText = 'No usable ML timing signal; Prophet direction is shown separately';
     }
     if (data.signal_reason) modelSourceText += ' · ' + data.signal_reason;
+    if (data.signal_adjusted_by_regime && data.regime_adjustment_reason) {
+        modelSourceText += ' · ' + data.regime_adjustment_reason;
+    }
     if (data.prophet_direction_signal && data.prophet_direction_signal !== 'HOLD') {
         const ppct = data.prophet_direction_change_pct != null ? `${Number(data.prophet_direction_change_pct).toFixed(2)}%` : 'n/a';
         modelSourceText += ` · Prophet direction: ${data.prophet_direction_signal} (${ppct})`;
+    }
+    if (data.strategy_settings && data.strategy_settings.bullish_regime_filter_enabled) {
+        modelSourceText += ' · Bullish-regime short filter ON';
     }
     document.getElementById('predModelSources').textContent = modelSourceText;
 
@@ -5876,7 +5886,8 @@ function renderPredictionResults(data) {
         const shouldShowProphetNote = pSig !== 'HOLD' && (data.signal === 'HOLD' || pSig !== data.signal);
         if (shouldShowProphetNote) {
             fallbackNote.style.display = 'flex';
-            fallbackText.innerHTML = `<strong>Prophet direction kept separate:</strong> Prophet price forecast leans <strong>${pSig}</strong> (${pPct}), but the ML strategy signal remains <strong>${data.signal}</strong>. This avoids Prophet-only fallback dominating the final signal.`;
+            const displaySig = data.signal_display_label || (data.signal === 'SELL' ? 'AVOID / EXIT' : data.signal);
+            fallbackText.innerHTML = `<strong>Prophet direction kept separate:</strong> Prophet price forecast leans <strong>${pSig}</strong> (${pPct}), but the ML strategy signal remains <strong>${displaySig}</strong>. This avoids Prophet-only fallback dominating the final signal.`;
         } else {
             fallbackNote.style.display = 'none';
             fallbackText.innerHTML = '';
@@ -6016,7 +6027,7 @@ function renderForecastChart(data) {
 
 /* Backtest mode helpers */
 function getBacktestPayload(data) {
-    const mode = currentBacktestMode || 'long_only';
+    const mode = currentBacktestMode || 'trend_investor';
     const btModes = data.backtest_modes || {};
     const tlModes = data.backtest_timelines_modes || {};
     const diagModes = data.signal_diagnostics_modes || {};
@@ -6041,19 +6052,19 @@ function updateBacktestModeText() {
 
     if (modeEl) {
         modeEl.innerHTML = isLS
-            ? `A long/short backtest asks: <strong>if BUY opened a long position and SELL opened a short position, what would ₹1,00,000 look like now?</strong> This is useful for understanding bearish signals, but it is only a simplified simulation.`
-            : `A long-only backtest asks: <strong>if this model bought only on BUY signals and exited/avoided on SELL signals, what would ₹1,00,000 look like now?</strong>`;
+            ? `An advanced hypothetical backtest asks: <strong>if BUY opened a long position and SELL opened a hypothetical short position, what would ₹1,00,000 look like now?</strong> A bullish-regime filter blocks fresh shorts in strongly bullish stocks. This is only a learning simulation, not a beginner recommendation.`
+            : `Trend Investor mode asks: <strong>if this stock entered/held during strong bullish regimes and exited after trend breakdowns, what would ₹1,00,000 look like now?</strong>`;
     }
 
     if (diagEl) {
         diagEl.innerHTML = isLS
-            ? `These counts explain why a model traded or stayed idle. In long/short mode, <strong>BUY = long</strong> and <strong>SELL = short</strong>. CASH exits a position. This makes bearish signals visible in the backtest instead of showing only Stayed Cash.`
-            : `These counts explain why a model traded or stayed idle. In long-only mode, BUY enters a position and SELL exits. XGBoost, LSTM and Ensemble act as <strong>entry-quality</strong> models; exits are handled separately by probability drop, trend change, stop-loss, take-profit and max holding-days rules.`;
+            ? `These counts explain why a model traded or stayed idle. In Advanced Hypothetical mode, <strong>BUY = long</strong> and <strong>SELL = hypothetical short</strong>. CASH exits a position. Bullish-regime filter blocks fresh short entries in strong uptrends.`
+            : `These counts explain why Trend Investor mode traded or stayed idle. <strong>BUY = enter/hold strong bullish regime</strong>. <strong>SELL = exit after confirmed trend weakness</strong>. Bearish ML signals inside strong bullish regimes are caution labels, not automatic exits.`;
     }
 }
 
 function switchBacktestMode(mode) {
-    currentBacktestMode = mode === 'long_short' ? 'long_short' : 'long_only';
+    currentBacktestMode = mode === 'long_short' ? 'long_short' : 'trend_investor';
     updateBacktestModeButtons();
     updateBacktestModeText();
     if (currentPredictionResult) {
@@ -6121,7 +6132,7 @@ function renderBacktestChart(data) {
         if (inactiveModels.length) {
             noteEl.style.display = 'block';
             noteEl.innerHTML = isLS
-                ? `ℹ️ ${inactiveModels.join(', ')} made no completed long/short trades in this test window. In this mode, BUY opens a long position and SELL opens a short position; HOLD keeps the current state and CASH exits.`
+                ? `ℹ️ ${inactiveModels.join(', ')} made no completed advanced hypothetical trades in this test window. In this mode, BUY opens a long position and SELL opens a short position; HOLD keeps the current state and CASH exits.`
                 : `ℹ️ ${inactiveModels.join(', ')} ${inactiveModels.length === 1 ? 'made' : 'made'} no completed trades in this test window, so their portfolio line stays flat at ₹1,00,000. The flat lines are intentionally drawn with different widths/dashes so overlapping strategies are still visible.`;
         } else {
             noteEl.style.display = 'none';
@@ -6135,7 +6146,7 @@ function renderBacktestChart(data) {
         return;
     }
     Plotly.newPlot('backtestChartDiv', traces, {
-        title:{text:`Strategy Portfolio Value vs Buy & Hold (${isLS ? 'Long/Short' : 'Long-only'})`, font:{size:13}},
+        title:{text:`Strategy Portfolio Value vs Buy & Hold (${isLS ? 'Advanced Hypothetical' : 'Trend Investor'})`, font:{size:13}},
         xaxis:{title:'Date'}, yaxis:{title:'Portfolio Value (₹)', tickprefix:'₹'},
         legend:{x:0.01,y:0.99}, hovermode:'x unified', template:'plotly_white',
         height:340, margin:{t:45,r:20,b:45,l:70}
@@ -6152,8 +6163,8 @@ function backtestMeaningCell(r, bh, mode = 'long_only') {
     const nTrades = Number(r.n_trades || 0);
     if (nTrades === 0) {
         return mode === 'long_short'
-            ? '<span class="bt-status-pill idle">No Direction</span>'
-            : '<span class="bt-status-pill idle">Stayed Cash</span>';
+            ? '<span class="bt-status-pill idle">No Direction / Blocked</span>'
+            : '<span class="bt-status-pill idle">No Trend Entry</span>';
     }
     if (nTrades < 3) {
         return '<span class="bt-status-pill warn" title="Too few trades for statistical confidence">Low Sample</span>';
@@ -6194,7 +6205,7 @@ function renderBacktestTable(data) {
         const nTrades = Number(r.n_trades || 0);
         const retCls = ret === null ? 'val-muted' : ret >= 0 ? 'val-pos' : 'val-neg';
         const tradesCell = nTrades === 0
-            ? `<span class="bt-status-pill idle" title="${isLS ? 'No completed long/short trade happened' : 'No completed BUY → SELL trade happened'}">No trades</span>`
+            ? `<span class="bt-status-pill idle" title="${isLS ? 'No completed advanced hypothetical trade happened' : 'No completed BUY → SELL trade happened'}">No trades</span>`
             : nTrades < 3
                 ? `<span class="bt-status-pill warn" title="Only ${nTrades} completed trade(s). Too few for reliable statistics.">${nTrades} trade${nTrades === 1 ? '' : 's'}</span>`
                 : `<span class="bt-status-pill active">${nTrades} trades</span>`;
@@ -6219,11 +6230,20 @@ function renderBacktestTable(data) {
     const maxTrades  = allNTrades.length ? Math.max(...allNTrades.map(Number)) : 0;
     if (maxTrades === 0 && allNTrades.length) {
         tbody.innerHTML += `<tr><td colspan="7" style="background:#fff8e6;color:#856404;font-size:11.5px;padding:10px 12px;border-top:2px solid #ffe082;">
-            ⚠️ <strong>No completed ${isLS ? 'long/short' : 'long-only'} trades in this test window.</strong> Zero return means the strategy stayed in cash, not that the chart/table failed.
+            ⚠️ <strong>No completed ${isLS ? 'advanced hypothetical' : 'long-only'} trades in this test window.</strong> Zero return means the strategy stayed in cash, not that the chart/table failed.
         </td></tr>`;
     } else if (maxTrades > 0 && maxTrades < 3) {
         tbody.innerHTML += `<tr><td colspan="7" style="background:#fff8e6;color:#856404;font-size:11.5px;padding:10px 12px;border-top:2px solid #ffe082;">
             ⚠️ <strong>Too few trades for statistical validity.</strong> A result based on only ${maxTrades} trade(s) can be accidental. Treat win rate, Sharpe and benchmark labels cautiously.
+        </td></tr>`;
+    }
+
+    const diag = payload.diag || {};
+    const blockedShorts = ['prophet','xgboost','lstm','ensemble']
+        .reduce((sum, key) => sum + Number((diag[key] || {}).shorts_blocked_bullish_regime || 0), 0);
+    if (isLS && blockedShorts > 0) {
+        tbody.innerHTML += `<tr><td colspan="7" style="background:#eef8ff;color:#24506f;font-size:11.5px;padding:10px 12px;border-top:2px solid #b8ddff;">
+            ℹ️ <strong>Bullish-regime filter active:</strong> ${blockedShorts} fresh hypothetical short signal(s) were blocked because the stock was in a strong bullish regime. Bearish signals are treated as avoid/exit instead of blindly shorting.
         </td></tr>`;
     }
 
@@ -6273,13 +6293,15 @@ function renderSignalDiagnostics(data) {
             </div>`;
         }
         const isProphet = key === 'prophet';
-        const buyLabel = isLS ? 'Long signals' : 'BUY signals';
-        const sellLabel = isLS ? 'Short signals' : 'SELL signals';
+        const buyLabel = isLS ? 'Long signals' : 'Trend entries';
+        const sellLabel = isLS ? 'Short signals' : 'Trend exits';
         return `<div class="signal-diagnostic-card">
             <div class="diag-model-name">${name}</div>
             <div class="diag-line"><span>Test days</span><strong>${d.days ?? '—'}</strong></div>
             ${!isProphet ? `<div class="diag-line"><span>High-prob days</span><strong>${d.high_probability_days ?? 0}</strong></div>` : ''}
             ${!isProphet ? `<div class="diag-line"><span>Flat-gate days</span><strong>${d.flat_gate_days ?? 0}</strong></div>` : ''}
+            ${isLS ? `<div class="diag-line"><span>Bullish-regime days</span><strong>${d.bullish_regime_days ?? 0}</strong></div>` : ''}
+            ${isLS ? `<div class="diag-line"><span>Shorts blocked</span><strong>${d.shorts_blocked_bullish_regime ?? 0}</strong></div>` : ''}
             <div class="diag-line"><span>${buyLabel}</span><strong>${d.buy_signals ?? 0}</strong></div>
             <div class="diag-line"><span>${sellLabel}</span><strong>${d.sell_signals ?? 0}</strong></div>
             <div class="diag-line"><span>Trades</span><strong>${d.completed_trades ?? 0}</strong></div>
@@ -6298,22 +6320,30 @@ function renderEnsembleTable(data) {
         tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center;">Ensemble unavailable — XGBoost or LSTM did not run.</td></tr>';
         return;
     }
-    const sigColor = {BUY:'color:#27ae60;font-weight:700', SELL:'color:#e74c3c;font-weight:700', HOLD:'color:#9BA8C0;font-weight:700'};
+    const sigColor = {BUY:'color:#27ae60;font-weight:700', SELL:'color:#e74c3c;font-weight:700', WAIT:'color:#1e5f8f;font-weight:700', HOLD:'color:#9BA8C0;font-weight:700'};
     const strengthTitle = {
         'STRONG': 'Both XGBoost and LSTM crossed the threshold.',
         'NORMAL': 'Weighted ensemble crossed the threshold.',
         'FLAT GATE': 'Timing probability was high, but Prophet trend was flat, so BUY/SELL was blocked.',
         'LOW PROB': 'Timing probability stayed below the entry threshold.',
+        'OVEREXTENDED': 'Strong bullish regime detected. Bearish/overbought signal is shown as WAIT instead of AVOID / EXIT.',
+        'DO NOT CHASE': 'Strong bullish regime, but no clean fresh BUY entry is available.',
         '—': 'No active signal.'
     };
     rows.forEach(r => {
-        const strength = r.strength || '—';
+        let displaySignal = r.signal;
+        let displayStrength = r.strength || '—';
+        if (r.signal === 'SELL' && r.bullish_regime) {
+            displaySignal = 'WAIT';
+            displayStrength = 'OVEREXTENDED';
+        }
+        const strength = displayStrength;
         tbody.innerHTML += `<tr>
             <td>${r.date}</td>
             <td>${(r.xgb_prob*100).toFixed(1)}%</td>
             <td>${(r.lstm_prob*100).toFixed(1)}%</td>
             <td><strong>${(r.ensemble_prob*100).toFixed(1)}%</strong></td>
-            <td style="${sigColor[r.signal]||''}">${r.signal}</td>
+            <td style="${sigColor[displaySignal]||''}">${displaySignal}</td>
             <td title="${strengthTitle[strength] || ''}">${strength}</td>
         </tr>`;
     });
