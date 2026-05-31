@@ -117,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:v7:{symbol.upper()}:{target_date}"
+    return f"predict_result:v10:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -225,6 +225,42 @@ EXIT_PROB_THRESHOLD     = max(0.0, min(CONFIDENCE_THRESHOLD, EXIT_PROB_THRESHOLD
 STOP_LOSS_PCT           = max(0.0, min(0.50, STOP_LOSS_PCT))
 TAKE_PROFIT_PCT         = max(0.0, min(1.00, TAKE_PROFIT_PCT))
 MAX_HOLD_DAYS           = max(5, min(252, MAX_HOLD_DAYS))
+
+# Prophet gate quality control. Prophet is useful for stable large-cap stocks,
+# but it can become a poor hard gate for explosive/volatile stocks. When the
+# held-out Prophet error or uncertainty is high, ML and trend-investor logic
+# treat Prophet direction as context rather than a hard BUY/SELL blocker.
+PROPHET_HARD_GATE_MAX_MAPE = float(os.getenv("PREDICTION_PROPHET_GATE_MAX_MAPE", "8.0"))
+PROPHET_HARD_GATE_MIN_DIR_ACC = float(os.getenv("PREDICTION_PROPHET_GATE_MIN_DIR_ACC", "55.0"))
+PROPHET_HARD_GATE_MAX_CI_PCT = float(os.getenv("PREDICTION_PROPHET_GATE_MAX_CI_PCT", "25.0"))
+PROPHET_HARD_GATE_MAX_MAPE = max(1.0, min(50.0, PROPHET_HARD_GATE_MAX_MAPE))
+PROPHET_HARD_GATE_MIN_DIR_ACC = max(40.0, min(90.0, PROPHET_HARD_GATE_MIN_DIR_ACC))
+PROPHET_HARD_GATE_MAX_CI_PCT = max(5.0, min(100.0, PROPHET_HARD_GATE_MAX_CI_PCT))
+
+# Trend Investor mode replaces the old narrow long-only mode. Instead of
+# waiting only for a fresh ML BUY timing signal, it asks the beginner-friendly
+# question: “was the stock in a strong enough uptrend to hold?”
+TREND_INVESTOR_EXIT_CONFIRM_DAYS = int(os.getenv("PREDICTION_TREND_EXIT_CONFIRM_DAYS", "5"))
+TREND_INVESTOR_EXIT_CONFIRM_DAYS = max(1, min(30, TREND_INVESTOR_EXIT_CONFIRM_DAYS))
+
+# Bullish-regime protection for the advanced hypothetical long/short backtest.
+# A bearish/overbought signal should not automatically become a SHORT when the
+# stock is in a strong bullish regime. This is especially important for beginner
+# interpretation: SELL can mean Avoid/Exit, while shorting remains only an
+# advanced hypothetical simulation.
+BULL_REGIME_FILTER_ENABLED = os.getenv("PREDICTION_BULL_REGIME_FILTER", "1").strip().lower() not in {"0", "false", "no", "off"}
+BULL_REGIME_SMA_WINDOW      = int(os.getenv("PREDICTION_BULL_REGIME_SMA_WINDOW", "100"))
+BULL_REGIME_MOM_WINDOW      = int(os.getenv("PREDICTION_BULL_REGIME_MOM_WINDOW", "126"))
+BULL_REGIME_FAST_MOM_WINDOW = int(os.getenv("PREDICTION_BULL_REGIME_FAST_MOM_WINDOW", "63"))
+BULL_REGIME_MOM_PCT         = float(os.getenv("PREDICTION_BULL_REGIME_MOM_PCT", "0.25"))
+BULL_REGIME_FAST_MOM_PCT    = float(os.getenv("PREDICTION_BULL_REGIME_FAST_MOM_PCT", "0.18"))
+BULL_REGIME_SMA_SLOPE_PCT   = float(os.getenv("PREDICTION_BULL_REGIME_SMA_SLOPE_PCT", "0.02"))
+BULL_REGIME_SMA_WINDOW      = max(40, min(220, BULL_REGIME_SMA_WINDOW))
+BULL_REGIME_MOM_WINDOW      = max(60, min(252, BULL_REGIME_MOM_WINDOW))
+BULL_REGIME_FAST_MOM_WINDOW = max(20, min(BULL_REGIME_MOM_WINDOW, BULL_REGIME_FAST_MOM_WINDOW))
+BULL_REGIME_MOM_PCT         = max(0.05, min(2.00, BULL_REGIME_MOM_PCT))
+BULL_REGIME_FAST_MOM_PCT    = max(0.03, min(1.00, BULL_REGIME_FAST_MOM_PCT))
+BULL_REGIME_SMA_SLOPE_PCT   = max(0.00, min(0.50, BULL_REGIME_SMA_SLOPE_PCT))
 
 FLAT_TREND_PCT       = float(os.getenv("PREDICTION_FLAT_TREND_PCT", "0.002"))
 LSTM_MIN_AUC         = float(os.getenv("PREDICTION_LSTM_MIN_AUC", "0.58"))
@@ -718,6 +754,103 @@ def _prophet_trend_state(honest_fc: pd.DataFrame, dates_series,
     )
 
 
+
+
+def _safe_metric_float(value) -> Optional[float]:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _prophet_gate_quality(prophet_metrics: dict,
+                          future_forecast: Optional[pd.DataFrame],
+                          current_price: float) -> dict:
+    """
+    Decide whether Prophet direction is reliable enough to be used as a hard
+    gate for ML trading signals.
+
+    For volatile bullish stocks, Prophet can have high MAPE or a very wide
+    confidence band. In those cases it should be displayed as context, not used
+    to block every ML/trend signal.
+    """
+    mape = _safe_metric_float((prophet_metrics or {}).get("mape"))
+    dir_acc = _safe_metric_float((prophet_metrics or {}).get("direction_accuracy"))
+    ci_width_pct = None
+
+    try:
+        if future_forecast is not None and not future_forecast.empty:
+            ff = future_forecast.copy()
+            if {"yhat_upper", "yhat_lower"}.issubset(ff.columns):
+                width = pd.to_numeric(ff["yhat_upper"], errors="coerce") - pd.to_numeric(ff["yhat_lower"], errors="coerce")
+                ci_width_pct = float(np.nanmedian(width) / max(float(current_price), 1e-9) * 100.0)
+    except Exception:
+        ci_width_pct = None
+
+    reasons = []
+    if mape is not None and mape > PROPHET_HARD_GATE_MAX_MAPE:
+        reasons.append(f"Prophet MAPE {mape:.2f}% is above {PROPHET_HARD_GATE_MAX_MAPE:.1f}%")
+    if dir_acc is not None and dir_acc < PROPHET_HARD_GATE_MIN_DIR_ACC:
+        reasons.append(f"Prophet direction accuracy {dir_acc:.1f}% is below {PROPHET_HARD_GATE_MIN_DIR_ACC:.0f}%")
+    if ci_width_pct is not None and ci_width_pct > PROPHET_HARD_GATE_MAX_CI_PCT:
+        reasons.append(f"Prophet forecast band is wide ({ci_width_pct:.1f}% of price)")
+
+    return {
+        "hard_gate_enabled": len(reasons) == 0,
+        "quality_poor": len(reasons) > 0,
+        "reason": "; ".join(reasons) if reasons else "Prophet validation is acceptable for hard gating",
+        "mape": None if mape is None else round(mape, 2),
+        "direction_accuracy": None if dir_acc is None else round(dir_acc, 1),
+        "median_ci_width_pct": None if ci_width_pct is None else round(ci_width_pct, 2),
+        "max_mape_threshold": round(PROPHET_HARD_GATE_MAX_MAPE, 2),
+        "min_direction_accuracy_threshold": round(PROPHET_HARD_GATE_MIN_DIR_ACC, 1),
+        "max_ci_width_pct_threshold": round(PROPHET_HARD_GATE_MAX_CI_PCT, 2),
+    }
+
+
+def _relax_flat_prophet_gate_when_unreliable(signals_df: Optional[pd.DataFrame],
+                                             prob_col: str,
+                                             prophet_gate_quality: Optional[dict]) -> Optional[pd.DataFrame]:
+    """
+    When Prophet quality is poor, do not let a flat/poor Prophet trend suppress
+    an otherwise valid bullish-regime long setup. This does not force a BUY for
+    every stock; it only converts high-probability FLAT-GATE rows into BUY when
+    the price itself is in a strong bullish regime.
+    """
+    if signals_df is None or signals_df.empty:
+        return signals_df
+    if prophet_gate_quality is None or prophet_gate_quality.get("hard_gate_enabled", True):
+        return signals_df
+    if prob_col not in signals_df.columns:
+        return signals_df
+
+    df = _attach_bullish_regime_columns(signals_df.copy(), "Close")
+    probs = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
+    bullish = df.get("bullish_regime", pd.Series([False] * len(df), index=df.index)).fillna(False).astype(bool)
+    sig = df.get("signal", pd.Series(["HOLD"] * len(df), index=df.index)).fillna("HOLD").astype(str).str.upper()
+    strength = df.get("strength", pd.Series([""] * len(df), index=df.index)).fillna("").astype(str).str.upper()
+
+    # Relax only the *flat Prophet gate* case. A raw bearish/SELL model signal
+    # inside a strong bullish regime is still shown as WAIT / OVEREXTENDED by
+    # the decision layer; Trend Investor mode may hold the trend, but the raw
+    # short-term caution is not silently converted into a normal BUY signal.
+    convert_to_buy = bullish & (probs >= CONFIDENCE_THRESHOLD) & (sig == "HOLD")
+    if "strength" in df.columns:
+        convert_to_buy = convert_to_buy & strength.isin(["FLAT GATE", "LOW PROB", ""])
+    if "prophet_trend_state" in df.columns:
+        trend_state = df["prophet_trend_state"].astype(str).str.lower()
+        convert_to_buy = convert_to_buy & trend_state.isin(["flat", "nan", "none", ""])
+
+    df.loc[convert_to_buy, "signal"] = "BUY"
+    df.loc[convert_to_buy, "strength"] = "REGIME BUY"
+    df.loc[convert_to_buy, "prophet_gate_relaxed"] = True
+    df.loc[convert_to_buy, "prophet_gate_relax_reason"] = prophet_gate_quality.get("reason", "Prophet hard gate disabled")
+    df["prophet_hard_gate_enabled"] = False
+    df["prophet_gate_quality_reason"] = prophet_gate_quality.get("reason", "Prophet hard gate disabled")
+    return df
+
 def _display_signal_confidence(signal: str, entry_prob: Optional[float],
                                signal_source: str,
                                signal_strength: Optional[str] = None) -> Optional[float]:
@@ -748,6 +881,10 @@ def _display_signal_confidence(signal: str, entry_prob: Optional[float],
 
     if signal == "HOLD" and (strength == "FLAT GATE" or p >= CONFIDENCE_THRESHOLD):
         return None
+    if signal == "WAIT":
+        # WAIT / OVEREXTENDED is a caution label, so show the active timing
+        # probability as caution confidence instead of pretending it is BUY/SELL.
+        return p
     return 1.0 - p if signal == "HOLD" else p
 
 
@@ -766,10 +903,125 @@ def _build_signal_reason(signal: str,
         return "Timing probability crossed the threshold, but Prophet trend was flat"
     if signal == "HOLD" and strength == "LOW PROB":
         return "Timing probability stayed below the entry threshold"
-    if signal in {"BUY", "SELL"} and entry_prob is not None:
+    if signal == "WAIT" and strength in {"OVEREXTENDED", "DO NOT CHASE"}:
+        return "Strong bullish regime detected; the model is cautious but not calling for a normal exit"
+    if signal in {"BUY", "SELL", "WAIT"} and entry_prob is not None:
         return f"Active timing probability: {float(entry_prob) * 100:.1f}%"
     return ""
 
+
+
+
+def _latest_bullish_regime_snapshot(*candidate_frames: Optional[pd.DataFrame]) -> dict:
+    """
+    Return the latest available bullish-regime snapshot from model signal frames.
+
+    This is used only by the user-facing decision layer. The underlying model
+    signals/backtests are preserved, but a bearish signal in a strong bullish
+    regime is displayed as WAIT / OVEREXTENDED instead of AVOID / EXIT.
+    """
+    empty = {
+        "current_bullish_regime": False,
+        "current_bullish_regime_momentum_pct": None,
+        "current_bullish_regime_fast_momentum_pct": None,
+        "current_bullish_regime_sma_slope_pct": None,
+    }
+    for frame in candidate_frames:
+        if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
+            continue
+        df = frame.copy()
+        if "bullish_regime" not in df.columns:
+            if "Close" not in df.columns:
+                continue
+            try:
+                df = _attach_bullish_regime_columns(df, "Close")
+            except Exception:
+                continue
+        if "bullish_regime" not in df.columns or df.empty:
+            continue
+        row = df.iloc[-1]
+
+        def _safe_float(col: str):
+            value = row.get(col, None)
+            try:
+                if value is None or pd.isna(value):
+                    return None
+                return round(float(value), 2)
+            except Exception:
+                return None
+
+        return {
+            "current_bullish_regime": bool(row.get("bullish_regime", False)),
+            "current_bullish_regime_momentum_pct": _safe_float("bullish_regime_momentum_pct"),
+            "current_bullish_regime_fast_momentum_pct": _safe_float("bullish_regime_fast_momentum_pct"),
+            "current_bullish_regime_sma_slope_pct": _safe_float("bullish_regime_sma_slope_pct"),
+        }
+    return empty
+
+
+def _apply_bullish_regime_display_adjustment(signal: str,
+                                             strength: Optional[str],
+                                             entry_prob: Optional[float],
+                                             signal_source: str,
+                                             prophet_direction_signal: Optional[str],
+                                             market_regime: dict) -> dict:
+    """
+    Convert aggressive bearish display labels into beginner-safe wording when
+    the stock is still in a strong bullish regime.
+
+    A strong bullish regime does not mean "BUY now". It means the broader trend
+    is healthy enough that a short-term bearish/overbought signal should usually
+    be read as WAIT / DO NOT CHASE, not AVOID / EXIT or short-selling.
+    """
+    raw_signal = str(signal or "HOLD").upper()
+    raw_strength = str(strength or "—")
+    bullish_now = bool(market_regime.get("current_bullish_regime"))
+
+    adjusted = {
+        "signal": raw_signal,
+        "signal_strength": raw_strength,
+        "signal_display_label": None,
+        "raw_ml_signal": raw_signal,
+        "raw_ml_signal_strength": raw_strength,
+        "signal_adjusted_by_regime": False,
+        "regime_adjustment_reason": None,
+    }
+
+    if not bullish_now:
+        return adjusted
+
+    # Strong bullish regime + bearish timing = overextended/wait.
+    if raw_signal == "SELL":
+        adjusted.update({
+            "signal": "WAIT",
+            "signal_strength": "OVEREXTENDED",
+            "signal_display_label": "WAIT / OVEREXTENDED",
+            "signal_adjusted_by_regime": True,
+            "regime_adjustment_reason": (
+                "Strong bullish regime detected. The bearish/overbought setup is "
+                "shown as WAIT / OVEREXTENDED instead of AVOID / EXIT. This means "
+                "avoid chasing a fresh entry, not blindly exit a strong trend."
+            ),
+        })
+        return adjusted
+
+    # Strong bullish regime + no entry setup = wait/do not chase rather than a
+    # plain HOLD that hides the regime context. Only apply this when Prophet is
+    # also leaning down/sideways or the ML strength is not a clean BUY.
+    if raw_signal == "HOLD" and str(prophet_direction_signal or "HOLD").upper() in {"SELL", "HOLD"}:
+        adjusted.update({
+            "signal": "WAIT",
+            "signal_strength": "DO NOT CHASE",
+            "signal_display_label": "WAIT / DO NOT CHASE",
+            "signal_adjusted_by_regime": True,
+            "regime_adjustment_reason": (
+                "Strong bullish regime detected, but the model does not see a clean "
+                "fresh BUY entry. The safer beginner interpretation is WAIT / DO NOT CHASE."
+            ),
+        })
+        return adjusted
+
+    return adjusted
 
 def _hierarchical_signals(proba: np.ndarray, dates_series,
                            honest_fc: pd.DataFrame,
@@ -840,6 +1092,13 @@ def run_xgboost_pipeline(xgb_df: pd.DataFrame, test_days: int,
 
     sigs = _hierarchical_signals(yproba, te["date"].values,
                                   honest_fc, te["Close"].values)
+    regime_cols = [
+        "date", "bullish_regime", "bullish_regime_momentum_pct",
+        "bullish_regime_fast_momentum_pct", "bullish_regime_sma_slope_pct",
+    ]
+    regime = _attach_bullish_regime_columns(xgb_df[["date", "Close"]].copy(), "Close")
+    sigs = sigs.merge(regime[[c for c in regime_cols if c in regime.columns]], on="date", how="left")
+
     return {"signals": sigs, "metrics": {"accuracy": round(acc,1),
                                           "roc_auc":  round(auc,4)}}
 
@@ -1311,6 +1570,12 @@ def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int,
         "signal": sigs,
         "strength": strengths,
     })
+    regime_cols = [
+        "date", "bullish_regime", "bullish_regime_momentum_pct",
+        "bullish_regime_fast_momentum_pct", "bullish_regime_sma_slope_pct",
+    ]
+    regime = _attach_bullish_regime_columns(xgb_df[["date", "Close"]].copy(), "Close")
+    sigs_df = sigs_df.merge(regime[[c for c in regime_cols if c in regime.columns]], on="date", how="left")
 
     train_labels = direction_labels[:split]
     train_counts = np.bincount(train_labels.astype(int), minlength=3)
@@ -1380,8 +1645,14 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
                                honest_fc: pd.DataFrame,
                                lstm_auc: float = 0.5,
                                lstm_reliable: bool = False) -> pd.DataFrame:
-    xgb = xgb_sigs[["date","Close","prob_good_entry","prophet_uptrend"]].copy()
-    xgb.columns = ["date","Close","xgb_prob","prophet_uptrend"]
+    xgb_cols = ["date", "Close", "prob_good_entry", "prophet_uptrend"]
+    regime_cols = [
+        "bullish_regime", "bullish_regime_momentum_pct",
+        "bullish_regime_fast_momentum_pct", "bullish_regime_sma_slope_pct",
+    ]
+    xgb_cols += [c for c in regime_cols if c in xgb_sigs.columns]
+    xgb = xgb_sigs[xgb_cols].copy()
+    xgb.rename(columns={"prob_good_entry": "xgb_prob"}, inplace=True)
     lst = lstm_sigs[["date","prob_good_entry"]].rename(
         columns={"prob_good_entry":"lstm_prob"})
     df  = xgb.merge(lst, on="date", how="inner")
@@ -1442,6 +1713,59 @@ def _normalise_trend_state(df: pd.DataFrame) -> pd.Series:
     if "prophet_up" in df.columns:
         return np.where(pd.to_numeric(df["prophet_up"], errors="coerce").fillna(0).astype(int) == 1, "up", "down")
     return pd.Series(["flat"] * len(df), index=df.index)
+
+
+def _attach_bullish_regime_columns(df: pd.DataFrame,
+                                   price_col: str = "Close") -> pd.DataFrame:
+    """
+    Add explainable bullish-regime columns for the advanced hypothetical
+    long/short mode.
+
+    Strong bullish regimes block fresh SHORT entries. In that case, a bearish
+    or overbought signal is treated as Avoid/Exit rather than "open a short".
+    """
+    if df is None or df.empty or price_col not in df.columns:
+        return df
+
+    out = df.copy()
+    if "bullish_regime" in out.columns:
+        out["bullish_regime"] = out["bullish_regime"].fillna(False).astype(bool)
+        for col in [
+            "bullish_regime_momentum_pct",
+            "bullish_regime_fast_momentum_pct",
+            "bullish_regime_sma_slope_pct",
+        ]:
+            if col not in out.columns:
+                out[col] = np.nan
+        return out
+
+    close = pd.to_numeric(out[price_col], errors="coerce")
+    min_sma = max(20, min(BULL_REGIME_SMA_WINDOW, 60))
+
+    sma = close.rolling(BULL_REGIME_SMA_WINDOW, min_periods=min_sma).mean()
+    mom = close.pct_change(BULL_REGIME_MOM_WINDOW)
+    fast_mom = close.pct_change(BULL_REGIME_FAST_MOM_WINDOW)
+    sma_slope = sma.pct_change(20)
+
+    # Early-window fallback: the held-out window may not yet have 126 days of
+    # local momentum, so use 63-day momentum until the longer measure exists.
+    effective_mom = mom.where(mom.notna(), fast_mom)
+
+    strong_bull = (
+        bool(BULL_REGIME_FILTER_ENABLED)
+        & (close > sma)
+        & (
+            (effective_mom >= BULL_REGIME_MOM_PCT)
+            | ((fast_mom >= BULL_REGIME_FAST_MOM_PCT) & (sma_slope >= 0))
+            | ((effective_mom >= BULL_REGIME_MOM_PCT * 0.60) & (sma_slope >= BULL_REGIME_SMA_SLOPE_PCT))
+        )
+    )
+
+    out["bullish_regime"] = strong_bull.fillna(False).astype(bool)
+    out["bullish_regime_momentum_pct"] = (effective_mom * 100).replace([np.inf, -np.inf], np.nan).round(2)
+    out["bullish_regime_fast_momentum_pct"] = (fast_mom * 100).replace([np.inf, -np.inf], np.nan).round(2)
+    out["bullish_regime_sma_slope_pct"] = (sma_slope * 100).replace([np.inf, -np.inf], np.nan).round(2)
+    return out
 
 
 def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
@@ -1569,6 +1893,118 @@ def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
 
 
 
+
+
+def build_trend_investor_strategy_signals(signals_df: pd.DataFrame,
+                                          prob_col: Optional[str],
+                                          model_name: str,
+                                          price_col: str = "Close",
+                                          exit_confirm_days: int = TREND_INVESTOR_EXIT_CONFIRM_DAYS) -> pd.DataFrame:
+    """
+    Beginner-friendly long-only Trend Investor strategy.
+
+    This replaces the old strict long-only strategy. The old strategy waited for
+    a fresh ML BUY timing signal, so strong momentum stocks often stayed cash.
+    Trend Investor mode instead enters/holds when the stock is in a strong
+    bullish regime and exits only after the trend weakens for a few days.
+
+    BUY  = enter/hold the uptrend
+    SELL = exit when the bullish regime breaks
+    HOLD = no action
+    """
+    if signals_df is None or signals_df.empty:
+        return pd.DataFrame()
+
+    df = signals_df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df = df.dropna(subset=["date", price_col]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        return df
+
+    df = _attach_bullish_regime_columns(df, price_col)
+    df["prophet_trend_state"] = list(_normalise_trend_state(df))
+    if prob_col and prob_col in df.columns:
+        df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
+    else:
+        df["entry_prob"] = np.nan
+
+    if "signal" in df.columns:
+        df["raw_advisory_signal"] = df["signal"].astype(str).str.upper()
+    else:
+        df["raw_advisory_signal"] = "HOLD"
+
+    signals, reasons = [], []
+    position = "OUT"
+    weak_trend_streak = 0
+
+    for _, row in df.iterrows():
+        bullish = bool(row.get("bullish_regime", False))
+        raw_sig = str(row.get("raw_advisory_signal", "HOLD")).upper()
+        prob = row.get("entry_prob", np.nan)
+        try:
+            prob_val = float(prob)
+        except Exception:
+            prob_val = np.nan
+
+        sig = "HOLD"
+        reason = "WAITING_FOR_BULLISH_REGIME"
+
+        if position == "OUT":
+            if bullish:
+                sig = "BUY"
+                reason = "TREND_INVESTOR_BULLISH_REGIME_ENTRY"
+                position = "IN"
+                weak_trend_streak = 0
+            else:
+                reason = "NO_BULLISH_REGIME"
+        else:
+            if bullish:
+                weak_trend_streak = 0
+                if raw_sig == "SELL":
+                    reason = "HOLDING_BULLISH_REGIME_MODEL_CAUTION"
+                elif np.isfinite(prob_val) and prob_val >= CONFIDENCE_THRESHOLD:
+                    reason = "HOLDING_BULLISH_REGIME_CONFIRMED"
+                else:
+                    reason = "HOLDING_BULLISH_REGIME"
+            else:
+                weak_trend_streak += 1
+                if weak_trend_streak >= exit_confirm_days:
+                    sig = "SELL"
+                    reason = "TREND_INVESTOR_TREND_BREAK_EXIT"
+                    position = "OUT"
+                    weak_trend_streak = 0
+                else:
+                    reason = "TREND_WEAKENING_WAITING_FOR_CONFIRMATION"
+
+        signals.append(sig)
+        reasons.append(reason)
+
+    df["strategy_signal"] = signals
+    df["trade_reason"] = reasons
+    df["raw_model_signal"] = df.get("signal", "HOLD")
+    df["signal"] = df["strategy_signal"]
+    df["model_name"] = model_name
+    return df
+
+
+def build_prophet_trend_investor_strategy_signals(backtest_series: list,
+                                                  price_col: str = "Close") -> pd.DataFrame:
+    """Trend Investor strategy using Prophet validation prices as the price series."""
+    if not backtest_series:
+        return pd.DataFrame()
+    df = pd.DataFrame(backtest_series).copy()
+    if df.empty or "actual" not in df.columns:
+        return pd.DataFrame()
+    df.rename(columns={"actual": price_col}, inplace=True)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df[price_col] = pd.to_numeric(df[price_col], errors="coerce")
+    df = df.dropna(subset=["date", price_col]).sort_values("date").reset_index(drop=True)
+    if df.empty:
+        return df
+    df["signal"] = "HOLD"
+    return build_trend_investor_strategy_signals(df, None, "Prophet", price_col=price_col)
+
 def build_long_short_strategy_signals(signals_df: pd.DataFrame,
                                       prob_col: str,
                                       model_name: str,
@@ -1607,6 +2043,8 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
     if df.empty:
         return df
 
+    df = _attach_bullish_regime_columns(df, price_col)
+
     if prob_col not in df.columns:
         df["entry_prob"] = np.nan
         df["signal"] = "HOLD"
@@ -1642,10 +2080,15 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
 
         raw_sig = str(row.get("raw_advisory_signal", "HOLD")).upper()
         desired = "CASH"
+        bullish_regime = bool(row.get("bullish_regime", False))
         if raw_sig == "BUY" and prob >= entry_threshold:
             desired = "LONG"
         elif raw_sig == "SELL" and prob >= entry_threshold:
-            desired = "SHORT"
+            if bullish_regime:
+                desired = "CASH"
+                reason = "SHORT_BLOCKED_BULLISH_REGIME"
+            else:
+                desired = "SHORT"
         elif prob >= entry_threshold and trend == "flat":
             desired = "CASH"
             reason = "ENTRY_BLOCKED_FLAT_TREND"
@@ -1679,6 +2122,12 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
                 position = "SHORT"
                 entry_price = px
                 entry_date = dt
+            elif raw_sig == "SELL" and bullish_regime:
+                sig = "CASH"
+                reason = "EXIT_LONG_BEARISH_SIGNAL_IN_BULLISH_REGIME"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
             elif trend == "flat":
                 sig = "CASH"
                 reason = "EXIT_LONG_FLAT_TREND"
@@ -1722,6 +2171,12 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
                 position = "LONG"
                 entry_price = px
                 entry_date = dt
+            elif bullish_regime:
+                sig = "CASH"
+                reason = "EXIT_SHORT_BULLISH_REGIME"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
             elif trend == "flat":
                 sig = "CASH"
                 reason = "EXIT_SHORT_FLAT_TREND"
@@ -1862,6 +2317,7 @@ def build_prophet_long_short_strategy_signals(backtest_series: list,
     if df.empty:
         return df
 
+    df = _attach_bullish_regime_columns(df, price_col)
     df["predicted_edge_pct"] = (df["predicted"] / df[price_col] - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
     signals, reasons, positions = [], [], []
@@ -1877,10 +2333,15 @@ def build_prophet_long_short_strategy_signals(backtest_series: list,
         reason = "WAITING_FOR_DIRECTIONAL_EDGE"
 
         desired = "CASH"
+        bullish_regime = bool(row.get("bullish_regime", False))
         if edge >= entry_threshold_pct:
             desired = "LONG"
         elif edge <= -entry_threshold_pct:
-            desired = "SHORT"
+            if bullish_regime:
+                desired = "CASH"
+                reason = "SHORT_BLOCKED_BULLISH_REGIME"
+            else:
+                desired = "SHORT"
         else:
             reason = "NO_DIRECTIONAL_EDGE"
 
@@ -1907,6 +2368,12 @@ def build_prophet_long_short_strategy_signals(backtest_series: list,
                 position = "SHORT"
                 entry_price = px
                 entry_date = dt
+            elif edge <= -entry_threshold_pct and bullish_regime:
+                sig = "CASH"
+                reason = "EXIT_LONG_BEARISH_EDGE_IN_BULLISH_REGIME"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
             elif edge <= exit_threshold_pct:
                 sig = "CASH"
                 reason = "EXIT_LONG_EDGE_FADED"
@@ -1943,6 +2410,12 @@ def build_prophet_long_short_strategy_signals(backtest_series: list,
                 position = "LONG"
                 entry_price = px
                 entry_date = dt
+            elif bullish_regime:
+                sig = "CASH"
+                reason = "EXIT_SHORT_BULLISH_REGIME"
+                position = "CASH"
+                entry_price = None
+                entry_date = None
             elif edge >= -exit_threshold_pct:
                 sig = "CASH"
                 reason = "EXIT_SHORT_EDGE_FADED"
@@ -1992,6 +2465,8 @@ def signal_diagnostics(signals_df: pd.DataFrame,
             "exit_probability_days": 0,
             "low_probability_days": 0,
             "flat_gate_days": 0,
+            "bullish_regime_days": 0,
+            "shorts_blocked_bullish_regime": 0,
             "uptrend_days": 0,
             "downtrend_days": 0,
             "buy_signals": 0,
@@ -2020,20 +2495,32 @@ def signal_diagnostics(signals_df: pd.DataFrame,
         low_probability_days = 0
         flat_gate_days = 0
 
+    bullish_regime_days = int(pd.Series(df.get("bullish_regime", pd.Series([False] * len(df))), index=df.index).fillna(False).astype(bool).sum())
+    trade_reasons = df.get("trade_reason", pd.Series([""] * len(df))).fillna("").astype(str).str.upper()
+    shorts_blocked_bullish = int((trade_reasons == "SHORT_BLOCKED_BULLISH_REGIME").sum())
+
     bt = backtest_result or {}
     buy_signals = int((sigs == "BUY").sum())
     sell_signals = int((sigs == "SELL").sum())
     completed = int(bt.get("n_trades", 0) or 0)
 
-    is_long_short = str(mode).lower() == "long_short"
+    mode_l = str(mode).lower()
+    is_long_short = mode_l == "long_short"
+    is_trend_investor = mode_l == "trend_investor"
     directional_signals = buy_signals + sell_signals if is_long_short else buy_signals
 
-    if completed == 0 and high_probability_days == 0:
+    if completed == 0 and is_trend_investor and bullish_regime_days == 0:
+        message = "No trend entry: the stock did not meet the strong bullish-regime rules."
+    elif completed == 0 and shorts_blocked_bullish > 0:
+        message = "Short entries were blocked by the bullish-regime filter."
+    elif completed == 0 and high_probability_days == 0:
         message = "No entries: probability never crossed the entry threshold."
     elif completed == 0 and directional_signals == 0 and flat_gate_days > 0:
         message = "Entries were blocked because Prophet trend was flat."
     elif completed == 0 and directional_signals == 0 and is_long_short:
         message = "No long/short entries: timing was high only when the trend gate did not allow a directional trade."
+    elif completed == 0 and buy_signals == 0 and is_trend_investor:
+        message = "No trend entries: bullish-regime conditions were not strong enough."
     elif completed == 0 and buy_signals == 0:
         message = "No long entries: timing was high only during flat/downtrend days."
     elif completed < 3:
@@ -2047,6 +2534,8 @@ def signal_diagnostics(signals_df: pd.DataFrame,
         "exit_probability_days": exit_probability_days,
         "low_probability_days": low_probability_days,
         "flat_gate_days": flat_gate_days,
+        "bullish_regime_days": bullish_regime_days,
+        "shorts_blocked_bullish_regime": shorts_blocked_bullish,
         "uptrend_days": int((trend_state == "up").sum()),
         "downtrend_days": int((trend_state == "down").sum()),
         "buy_signals": buy_signals,
@@ -2602,6 +3091,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                            "falling back to smooth Prophet forecast")
 
         future_only = final_forecast[final_forecast["ds"] > cutoff_date].copy()
+        prophet_gate_quality = _prophet_gate_quality(prophet_val, future_only, current_price)
         if cancelled(): return
 
         # -- ML-windowed data --
@@ -2643,13 +3133,14 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 if cancelled(): return
                 progress(54, "Training XGBoost classifier (feature selection + fit)…")
                 xgb_result = run_xgboost_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
-                xgb_strategy_sigs = build_entry_exit_strategy_signals(
-                    xgb_result["signals"],
+                xgb_result["signals"] = _relax_flat_prophet_gate_when_unreliable(xgb_result.get("signals"), "prob_good_entry", prophet_gate_quality)
+                xgb_strategy_sigs = build_trend_investor_strategy_signals(
+                    _relax_flat_prophet_gate_when_unreliable(xgb_result["signals"], "prob_good_entry", prophet_gate_quality),
                     prob_col="prob_good_entry",
                     model_name="XGBoost",
                 )
                 xgb_bt = run_backtest(xgb_strategy_sigs)
-                xgb_diag = signal_diagnostics(xgb_strategy_sigs, "entry_prob", xgb_bt, mode="long_only")
+                xgb_diag = signal_diagnostics(xgb_strategy_sigs, "entry_prob", xgb_bt, mode="trend_investor")
 
                 xgb_long_short_sigs = build_long_short_strategy_signals(
                     xgb_result["signals"],
@@ -2678,14 +3169,15 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 if cancelled(): return
                 progress(62, "Training LSTM v3 directional sequence model (CASH/LONG/SHORT)…")
                 lstm_result = run_lstm_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
+                lstm_result["signals"] = _relax_flat_prophet_gate_when_unreliable(lstm_result.get("signals"), "prob_good_entry", prophet_gate_quality)
                 if lstm_result["signals"] is not None:
-                    lstm_strategy_sigs = build_entry_exit_strategy_signals(
-                        lstm_result["signals"],
+                    lstm_strategy_sigs = build_trend_investor_strategy_signals(
+                        _relax_flat_prophet_gate_when_unreliable(lstm_result["signals"], "prob_good_entry", prophet_gate_quality),
                         prob_col="prob_good_entry",
                         model_name="LSTM",
                     )
                     lstm_bt = run_backtest(lstm_strategy_sigs)
-                    lstm_diag = signal_diagnostics(lstm_strategy_sigs, "entry_prob", lstm_bt, mode="long_only")
+                    lstm_diag = signal_diagnostics(lstm_strategy_sigs, "entry_prob", lstm_bt, mode="trend_investor")
 
                     lstm_long_short_sigs = build_long_short_strategy_signals(
                         lstm_result["signals"],
@@ -2728,13 +3220,14 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                     lstm_auc=float(lstm_auc_val),
                     lstm_reliable=lstm_rel_val,
                 )
-                ens_strategy_sigs = build_entry_exit_strategy_signals(
-                    ens_sigs,
+                ens_sigs = _relax_flat_prophet_gate_when_unreliable(ens_sigs, "ensemble_prob", prophet_gate_quality)
+                ens_strategy_sigs = build_trend_investor_strategy_signals(
+                    _relax_flat_prophet_gate_when_unreliable(ens_sigs, "ensemble_prob", prophet_gate_quality),
                     prob_col="ensemble_prob",
                     model_name="Ensemble",
                 )
                 ens_bt = run_backtest(ens_strategy_sigs)
-                ens_diag = signal_diagnostics(ens_strategy_sigs, "entry_prob", ens_bt, mode="long_only")
+                ens_diag = signal_diagnostics(ens_strategy_sigs, "entry_prob", ens_bt, mode="trend_investor")
 
                 ens_long_short_sigs = build_long_short_strategy_signals(
                     ens_sigs,
@@ -2780,6 +3273,25 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             elif prophet_direction_change_pct < -0.5:
                 prophet_direction_signal = "SELL"
 
+        # -- Beginner-safe signal display for strong bullish regimes --
+        # A strongly bullish stock can still look short-term overextended. In that
+        # case, do not present the main user-facing signal as AVOID / EXIT. Show
+        # WAIT / OVEREXTENDED instead, while keeping the raw ML signal for audit
+        # and keeping advanced hypothetical backtests separate.
+        market_regime = _latest_bullish_regime_snapshot(ens_sigs, xgb_result.get("signals"), lstm_result.get("signals"), xgb_df_feat)
+        display_adjustment = _apply_bullish_regime_display_adjustment(
+            current_signal,
+            current_strength,
+            current_entry_probability,
+            signal_source,
+            prophet_direction_signal,
+            market_regime,
+        )
+        raw_ml_signal = display_adjustment["raw_ml_signal"]
+        raw_ml_signal_strength = display_adjustment["raw_ml_signal_strength"]
+        current_signal = display_adjustment["signal"]
+        current_strength = display_adjustment["signal_strength"]
+
         # -- Prophet-only backtest --
         progress(84, "Running Prophet strategy backtest…")
         prophet_bt: dict = {}
@@ -2787,9 +3299,9 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
         prophet_diag: dict = {}
         prophet_diag_long_short: dict = {}
         if prophet_val.get("backtest_series"):
-            prophet_strategy_sigs = build_prophet_strategy_signals(prophet_val["backtest_series"])
+            prophet_strategy_sigs = build_prophet_trend_investor_strategy_signals(prophet_val["backtest_series"])
             prophet_bt = run_backtest(prophet_strategy_sigs)
-            prophet_diag = signal_diagnostics(prophet_strategy_sigs, None, prophet_bt, mode="long_only")
+            prophet_diag = signal_diagnostics(prophet_strategy_sigs, None, prophet_bt, mode="trend_investor")
 
             prophet_long_short_sigs = build_prophet_long_short_strategy_signals(prophet_val["backtest_series"])
             prophet_bt_long_short = run_long_short_backtest(prophet_long_short_sigs)
@@ -2832,7 +3344,10 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
 
         ens_table = []
         if ens_sigs is not None:
-            ens_table = (ens_sigs[["date","xgb_prob","lstm_prob","ensemble_prob","signal","strength"]]
+            ens_table_cols = ["date", "xgb_prob", "lstm_prob", "ensemble_prob", "signal", "strength"]
+            if "bullish_regime" in ens_sigs.columns:
+                ens_table_cols.append("bullish_regime")
+            ens_table = (ens_sigs[ens_table_cols]
                          .tail(15).assign(date=lambda df: df["date"].astype(str))
                          .to_dict("records"))
 
@@ -2848,12 +3363,18 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             "target_date": target_date, "forecast_days": forecast_days,
             "current_price": round(current_price,2),
             "signal": current_signal, "signal_strength": current_strength,
+            "signal_display_label": display_adjustment.get("signal_display_label"),
+            "raw_ml_signal": raw_ml_signal,
+            "raw_ml_signal_strength": raw_ml_signal_strength,
+            "signal_adjusted_by_regime": bool(display_adjustment.get("signal_adjusted_by_regime", False)),
+            "regime_adjustment_reason": display_adjustment.get("regime_adjustment_reason"),
             "signal_confidence": None if display_confidence is None else round(display_confidence, 3),
             "entry_probability": None if current_entry_probability is None else round(float(current_entry_probability), 3),
             "signal_source": signal_source,
             "signal_reason": signal_reason,
             "prophet_direction_signal": prophet_direction_signal,
             "prophet_direction_change_pct": prophet_direction_change_pct,
+            "prophet_gate_quality": prophet_gate_quality,
             "target_pred": target_pred,
             "historical": historical, "in_sample_fit": in_sample,
             "forecast": forecast, "checkpoints": checkpoints,
@@ -2862,14 +3383,14 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             "prophet_metrics": {k:v for k,v in prophet_val.items() if k!="backtest_series"},
             "xgb_metrics":  xgb_result["metrics"],
             "lstm_metrics": lstm_result["metrics"],
-            # Backward-compatible default: long-only mode.
+            # Backward-compatible default: Trend Investor mode.
             "backtest": {
                 "prophet":  {k:v for k,v in prophet_bt.items()  if k!="portfolio_timeline"},
                 "xgboost":  {k:v for k,v in xgb_bt.items()      if k!="portfolio_timeline"} if xgb_bt  else {},
                 "lstm":     {k:v for k,v in lstm_bt.items()      if k!="portfolio_timeline"} if lstm_bt  else {},
                 "ensemble": {k:v for k,v in ens_bt.items()       if k!="portfolio_timeline"} if ens_bt  else {},
                 "buy_hold_return": (xgb_bt or lstm_bt or ens_bt or prophet_bt or {}).get("bh_total_return"),
-                "mode": "long_only",
+                "mode": "trend_investor",
             },
             "backtest_timelines": {
                 "prophet":  prophet_bt.get("portfolio_timeline",[]),
@@ -2884,15 +3405,24 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 "ensemble": ens_diag,
             },
 
-            # New two-mode backtest payload for the dashboard toggle.
+            # Two-mode backtest payload for the dashboard toggle.
             "backtest_modes": {
+                "trend_investor": {
+                    "prophet":  {k:v for k,v in prophet_bt.items()  if k!="portfolio_timeline"},
+                    "xgboost":  {k:v for k,v in xgb_bt.items()      if k!="portfolio_timeline"} if xgb_bt  else {},
+                    "lstm":     {k:v for k,v in lstm_bt.items()      if k!="portfolio_timeline"} if lstm_bt  else {},
+                    "ensemble": {k:v for k,v in ens_bt.items()       if k!="portfolio_timeline"} if ens_bt  else {},
+                    "buy_hold_return": (xgb_bt or lstm_bt or ens_bt or prophet_bt or {}).get("bh_total_return"),
+                    "mode": "trend_investor",
+                },
+                # Backward-compatible alias for older dashboard code.
                 "long_only": {
                     "prophet":  {k:v for k,v in prophet_bt.items()  if k!="portfolio_timeline"},
                     "xgboost":  {k:v for k,v in xgb_bt.items()      if k!="portfolio_timeline"} if xgb_bt  else {},
                     "lstm":     {k:v for k,v in lstm_bt.items()      if k!="portfolio_timeline"} if lstm_bt  else {},
                     "ensemble": {k:v for k,v in ens_bt.items()       if k!="portfolio_timeline"} if ens_bt  else {},
                     "buy_hold_return": (xgb_bt or lstm_bt or ens_bt or prophet_bt or {}).get("bh_total_return"),
-                    "mode": "long_only",
+                    "mode": "trend_investor",
                 },
                 "long_short": {
                     "prophet":  {k:v for k,v in prophet_bt_long_short.items()  if k!="portfolio_timeline"},
@@ -2904,6 +3434,12 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 },
             },
             "backtest_timelines_modes": {
+                "trend_investor": {
+                    "prophet":  prophet_bt.get("portfolio_timeline",[]),
+                    "xgboost":  xgb_bt.get("portfolio_timeline",[])  if xgb_bt  else [],
+                    "lstm":     lstm_bt.get("portfolio_timeline",[])  if lstm_bt  else [],
+                    "ensemble": ens_bt.get("portfolio_timeline",[])   if ens_bt  else [],
+                },
                 "long_only": {
                     "prophet":  prophet_bt.get("portfolio_timeline",[]),
                     "xgboost":  xgb_bt.get("portfolio_timeline",[])  if xgb_bt  else [],
@@ -2918,6 +3454,12 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 },
             },
             "signal_diagnostics_modes": {
+                "trend_investor": {
+                    "prophet": prophet_diag,
+                    "xgboost": xgb_diag,
+                    "lstm": lstm_diag,
+                    "ensemble": ens_diag,
+                },
                 "long_only": {
                     "prophet": prophet_diag,
                     "xgboost": xgb_diag,
@@ -2938,7 +3480,16 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
                 "take_profit_pct": round(TAKE_PROFIT_PCT * 100, 2),
                 "max_hold_days": int(MAX_HOLD_DAYS),
                 "preferred_backtest_days": int(PREFERRED_BACKTEST_DAYS),
+                "trend_investor_exit_confirm_days": int(TREND_INVESTOR_EXIT_CONFIRM_DAYS),
+                "prophet_hard_gate_enabled": bool(prophet_gate_quality.get("hard_gate_enabled", True)),
+                "prophet_gate_quality_reason": prophet_gate_quality.get("reason"),
+                "bullish_regime_filter_enabled": bool(BULL_REGIME_FILTER_ENABLED),
+                "bullish_regime_sma_window": int(BULL_REGIME_SMA_WINDOW),
+                "bullish_regime_momentum_window": int(BULL_REGIME_MOM_WINDOW),
+                "bullish_regime_momentum_pct": round(BULL_REGIME_MOM_PCT * 100, 2),
+                "bullish_regime_fast_momentum_pct": round(BULL_REGIME_FAST_MOM_PCT * 100, 2),
             },
+            "market_regime": market_regime,
             "ensemble_table": ens_table,
             "prophet_backtest_series": prophet_val.get("backtest_series",[]),
             "lstm_reliable":       lstm_result.get("lstm_reliable",False),
