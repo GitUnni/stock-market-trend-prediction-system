@@ -48,7 +48,7 @@ from upstash_redis import Redis
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -117,7 +117,7 @@ def _job_key(job_id: str) -> str:
 
 def _cache_key(symbol: str, target_date: str) -> str:
     """Redis key for a finished prediction result, scoped by (symbol, target_date)."""
-    return f"predict_result:v11:{symbol.upper()}:{target_date}"
+    return f"predict_result:v13:{symbol.upper()}:{target_date}"
 
 def _cache_get(symbol: str, target_date: str) -> Optional[dict]:
     """Return the cached result dict, or None on miss / Redis unavailable."""
@@ -185,7 +185,7 @@ def _new_job(job_id: str, symbol: str, target_date: str) -> dict:
         "progress_msg" : "Queued — waiting to start",
         "result"       : None,
         "error"        : None,
-        "created_at"   : datetime.utcnow().isoformat(),
+        "created_at"   : datetime.now(tz=timezone.utc).isoformat(),
         "_cancel"      : False,
     }
 
@@ -1348,7 +1348,7 @@ def _compute_global_lstm_features(stock_df: pd.DataFrame,
 
 def _download_global_lstm_training_frames(start_date: str, market_context: pd.DataFrame) -> list:
     """Fetch and feature-engineer Nifty-50 frames, using a short in-process cache."""
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone.utc)
     cached_at = _GLOBAL_LSTM_DATA_CACHE.get("created_at")
     cached_frames = _GLOBAL_LSTM_DATA_CACHE.get("frames")
     if cached_at and cached_frames is not None:
@@ -1385,402 +1385,144 @@ def _download_global_lstm_training_frames(start_date: str, market_context: pd.Da
     return frames
 
 
+def _dummy_lstm_signals_from_xgb(xgb_df: pd.DataFrame, test_days: int, reason: str = "saved_global_lstm_unavailable") -> pd.DataFrame:
+    """Return a neutral LSTM signal frame so XGBoost-only ensemble can still render."""
+    te_slice = xgb_df.tail(max(1, int(test_days))).copy().reset_index(drop=True)
+    trend_state = ["flat"] * len(te_slice)
+    out = pd.DataFrame({
+        "date": pd.to_datetime(te_slice["date"]).values,
+        "Close": pd.to_numeric(te_slice["Close"], errors="coerce").values,
+        "prob_good_entry": 0.0,
+        "lstm_cash_prob": 1.0,
+        "lstm_long_prob": 0.0,
+        "lstm_short_prob": 0.0,
+        "model_direction": "HOLD",
+        "prophet_uptrend": 0,
+        "prophet_trend_state": trend_state,
+        "signal": "HOLD",
+        "strength": "NO MODEL",
+        "lstm_status_reason": reason,
+    })
+    regime_cols = [
+        "date", "bullish_regime", "bullish_regime_momentum_pct",
+        "bullish_regime_fast_momentum_pct", "bullish_regime_sma_slope_pct",
+    ]
+    try:
+        regime = _attach_bullish_regime_columns(xgb_df[["date", "Close"]].copy(), "Close")
+        out = out.merge(regime[[c for c in regime_cols if c in regime.columns]], on="date", how="left")
+    except Exception:
+        pass
+    return out
+
+
 def run_lstm_pipeline(xgb_df: pd.DataFrame, test_days: int, honest_fc: pd.DataFrame) -> dict:
-    """Global Nifty-50 LSTM sequence model replacing the old per-stock LSTM."""
+    """
+    Saved Global LSTM pipeline.
+
+    Important change from earlier versions:
+    - The LSTM is no longer trained inside every prediction request.
+    - It loads a saved global model from app/static/models/global_lstm/.
+    - Train/update that saved model separately with:
+          python -m app.ml.train_global_lstm
+
+    This makes LSTM more stable and allows proper offline training, walk-forward
+    validation, relative-return labels, model-specific thresholds, and "replace
+    only if better" model selection.
+    """
     if not GLOBAL_LSTM_ENABLED:
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
-    try:
-        from sklearn.metrics import accuracy_score, balanced_accuracy_score, roc_auc_score, log_loss
-        from sklearn.utils.class_weight import compute_class_weight
-        import torch
-        import torch.nn as nn
-        import torch.optim as optim
-        from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-    except Exception as exc:
-        logger.warning(f"[PREDICT] Global LSTM dependencies unavailable: {exc}")
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
-
-    if xgb_df is None or xgb_df.empty or len(xgb_df) < (test_days + max(LSTM_SEQUENCE_LENGTHS) + 260):
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
-    df = xgb_df.copy().sort_values("date").reset_index(drop=True)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.tz_localize(None)
-    for c in ["Open", "High", "Low", "Close", "Volume"]:
-        if c not in df.columns:
-            df[c] = df["Close"] if c != "Volume" else 0
-    df = df.dropna(subset=["date", "Close"]).reset_index(drop=True)
-    test_days = min(test_days, max(30, len(df) - max(LSTM_SEQUENCE_LENGTHS) - GLOBAL_LSTM_LABEL_HORIZON - 5))
-    split = len(df) - test_days
-    if split <= max(LSTM_SEQUENCE_LENGTHS) + 260:
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
-
-    start_date = (df["date"].min() - pd.Timedelta(days=40)).strftime("%Y-%m-%d")
-    test_start_date = df["date"].iloc[split]
-    val_start_date = test_start_date - pd.Timedelta(days=365)
-
-    try:
-        nifty_raw = yf.download("^NSEI", start=start_date, end=datetime.today().strftime("%Y-%m-%d"),
-                                auto_adjust=True, progress=False, threads=False)
-        nifty_df = _extract_ohlcv_from_download(nifty_raw, "^NSEI")
-        market_context = _make_market_context_from_ohlcv(nifty_df)
-    except Exception as exc:
-        logger.warning(f"[PREDICT] Could not fetch Nifty context for global LSTM: {exc}")
-        market_context = pd.DataFrame(columns=["date"])
-
-    target_feat = _compute_global_lstm_features(df[["date", "Open", "High", "Low", "Close", "Volume"]].copy(), "__TARGET__", market_context)
-    global_frames = _download_global_lstm_training_frames(start_date, market_context)
-    all_frames = [f for f in global_frames if f is not None and not f.empty]
-    if not target_feat.empty:
-        all_frames.append(target_feat)
-    if len(all_frames) < 5:
-        logger.warning("[PREDICT] Global LSTM has too few stock frames; falling back to no LSTM")
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
-
-    def _safe_auc_local(y_true, y_score) -> float:
-        try:
-            y_true = np.asarray(y_true)
-            y_score = np.asarray(y_score)
-            if len(np.unique(y_true[~pd.isna(y_true)])) < 2:
-                return 0.5
-            return float(roc_auc_score(y_true, y_score))
-        except Exception:
-            return 0.5
-
-    def _direction_accuracy_local(y_true, probs3) -> float:
-        y_true = np.asarray(y_true).astype(int)
-        probs3 = np.asarray(probs3, dtype=float)
-        active = y_true != 0
-        if active.sum() == 0:
-            return 0.0
-        pred_dir = np.where(probs3[:, 1] >= probs3[:, 2], 1, 2)
-        return float((pred_dir[active] == y_true[active]).mean() * 100.0)
-
-    def _make_sequences_from_frame(frame: pd.DataFrame, seq_len: int, mode: str):
-        f = frame.sort_values("date").reset_index(drop=True)
-        X_rows, y_rows, d_rows = [], [], []
-        feat = f[GLOBAL_LSTM_FEATURE_COLS].to_numpy(dtype=float)
-        labels = f["direction_label"].to_numpy()
-        dates = pd.to_datetime(f["date"]).to_numpy()
-        for i in range(seq_len, len(f)):
-            dt = pd.Timestamp(dates[i])
-            if mode == "train":
-                if not (dt < val_start_date) or pd.isna(labels[i]):
-                    continue
-            elif mode == "val":
-                if not (val_start_date <= dt < test_start_date) or pd.isna(labels[i]):
-                    continue
-            elif mode == "test_target":
-                if not (dt >= test_start_date):
-                    continue
-            X_rows.append(feat[i-seq_len:i])
-            y_rows.append(-1 if pd.isna(labels[i]) else int(labels[i]))
-            d_rows.append(pd.Timestamp(dates[i]))
-        if not X_rows:
-            return np.empty((0, seq_len, len(GLOBAL_LSTM_FEATURE_COLS))), np.array([]), []
-        return np.asarray(X_rows, dtype=np.float32), np.asarray(y_rows, dtype=int), d_rows
-
-    def _class_balanced_limit(X, y, max_samples: int, seed: int = 42):
-        if len(y) <= max_samples:
-            return X, y
-        rng = np.random.default_rng(seed)
-        indices = []
-        classes = np.unique(y)
-        per_class = max(1, max_samples // max(1, len(classes)))
-        for cls in classes:
-            cls_idx = np.where(y == cls)[0]
-            take = min(len(cls_idx), per_class)
-            if take > 0:
-                indices.extend(rng.choice(cls_idx, size=take, replace=False).tolist())
-        if len(indices) < max_samples:
-            remaining = np.setdiff1d(np.arange(len(y)), np.asarray(indices, dtype=int), assume_unique=False)
-            take = min(len(remaining), max_samples - len(indices))
-            if take > 0:
-                indices.extend(rng.choice(remaining, size=take, replace=False).tolist())
-        indices = np.asarray(indices, dtype=int)
-        rng.shuffle(indices)
-        return X[indices], y[indices]
-
-    class SeqDS(Dataset):
-        def __init__(self, X, y):
-            self.X = torch.tensor(X, dtype=torch.float32)
-            self.y = torch.tensor(y, dtype=torch.long)
-        def __len__(self):
-            return len(self.y)
-        def __getitem__(self, i):
-            return self.X[i], self.y[i]
-
-    class GlobalAttentionLSTM(nn.Module):
-        def __init__(self, n_features: int):
-            super().__init__()
-            self.lstm = nn.LSTM(input_size=n_features, hidden_size=48, num_layers=1,
-                                batch_first=True, dropout=0.0, bidirectional=True)
-            self.attn = nn.Sequential(nn.Linear(96, 32), nn.Tanh(), nn.Linear(32, 1))
-            self.head = nn.Sequential(nn.LayerNorm(96), nn.Dropout(0.25), nn.Linear(96, 48),
-                                      nn.ReLU(), nn.Dropout(0.20), nn.Linear(48, 3))
-        def forward(self, x):
-            out, _ = self.lstm(x)
-            w = torch.softmax(self.attn(out).squeeze(-1), dim=1).unsqueeze(-1)
-            return self.head((out * w).sum(dim=1))
-
-    def _predict_logits(net, X, batch_size=512):
-        device = next(net.parameters()).device
-        outs = []
-        net.eval()
-        with torch.no_grad():
-            for i in range(0, len(X), batch_size):
-                xb = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=device)
-                outs.append(net(xb).detach().cpu().numpy())
-        return np.vstack(outs) if outs else np.empty((0, 3))
-
-    def _softmax(logits, temperature=1.0):
-        z = np.asarray(logits, dtype=float) / max(float(temperature), 1e-6)
-        z = z - np.nanmax(z, axis=1, keepdims=True)
-        e = np.exp(z)
-        return e / np.clip(e.sum(axis=1, keepdims=True), 1e-12, None)
-
-    def _fit_temperature(logits, y):
-        y = np.asarray(y, dtype=int)
-        if len(y) < 50:
-            return 1.0
-        best_t, best_loss = 1.0, float("inf")
-        for t in np.linspace(0.75, LSTM_TEMPERATURE_MAX, 18):
-            p = _softmax(logits, t)
-            try:
-                loss = log_loss(y, np.clip(p, 1e-6, 1-1e-6), labels=[0, 1, 2])
-            except Exception:
-                continue
-            if loss < best_loss:
-                best_loss, best_t = loss, float(t)
-        return best_t
-
-    def _train_candidate(seq_len: int, seed: int):
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        X_train_parts, y_train_parts, X_val_parts, y_val_parts = [], [], [], []
-        for frame in all_frames:
-            Xtr, ytr, _ = _make_sequences_from_frame(frame, seq_len, "train")
-            Xva, yva, _ = _make_sequences_from_frame(frame, seq_len, "val")
-            if len(ytr):
-                X_train_parts.append(Xtr); y_train_parts.append(ytr)
-            if len(yva):
-                X_val_parts.append(Xva); y_val_parts.append(yva)
-        if not X_train_parts or not X_val_parts:
-            return None
-        X_train = np.vstack(X_train_parts)
-        y_train = np.concatenate(y_train_parts).astype(int)
-        X_val = np.vstack(X_val_parts)
-        y_val = np.concatenate(y_val_parts).astype(int)
-        X_train, y_train = X_train[y_train >= 0], y_train[y_train >= 0]
-        X_val, y_val = X_val[y_val >= 0], y_val[y_val >= 0]
-        if len(y_train) < 1500 or len(y_val) < 200 or len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
-            return None
-        flat = X_train.reshape(-1, X_train.shape[-1])
-        mu = np.nanmean(flat, axis=0)
-        sd = np.nanstd(flat, axis=0)
-        sd = np.where((sd < 1e-6) | ~np.isfinite(sd), 1.0, sd)
-        mu = np.where(~np.isfinite(mu), 0.0, mu)
-        X_train = np.clip((X_train - mu) / sd, -6.0, 6.0)
-        X_val = np.clip((X_val - mu) / sd, -6.0, 6.0)
-        X_train, y_train = _class_balanced_limit(X_train, y_train, GLOBAL_LSTM_MAX_TRAIN_SAMPLES, seed)
-        X_val, y_val = _class_balanced_limit(X_val, y_val, GLOBAL_LSTM_MAX_VAL_SAMPLES, seed + 7)
-        classes = np.array([0, 1, 2])
-        try:
-            cw = compute_class_weight(class_weight="balanced", classes=classes, y=y_train)
-        except Exception:
-            counts = np.bincount(y_train, minlength=3).astype(float)
-            cw = len(y_train) / (3.0 * np.maximum(counts, 1.0))
-        cw = np.clip(cw, 0.50, 4.00).astype(np.float32)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        net = GlobalAttentionLSTM(X_train.shape[-1]).to(device)
-        opt = optim.AdamW(net.parameters(), lr=0.0012, weight_decay=1e-4)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", patience=2, factor=0.6)
-        ce = nn.CrossEntropyLoss(weight=torch.tensor(cw, dtype=torch.float32, device=device), reduction="none")
-        def focal_loss(logits, yb):
-            base = ce(logits, yb)
-            if LSTM_FOCAL_GAMMA <= 0:
-                return base.mean()
-            pt = torch.exp(-base).clamp(1e-5, 1.0)
-            return (((1.0 - pt) ** LSTM_FOCAL_GAMMA) * base).mean()
-        sample_weights = cw[y_train]
-        sampler = WeightedRandomSampler(weights=torch.tensor(sample_weights, dtype=torch.double),
-                                        num_samples=len(sample_weights), replacement=True)
-        loader = DataLoader(SeqDS(X_train, y_train), batch_size=256, sampler=sampler)
-        best_state, best_score, best_loss, patience = None, -1.0, float("inf"), 0
-        for _epoch in range(min(LSTM_MAX_EPOCHS, 70)):
-            net.train()
-            for xb, yb in loader:
-                xb, yb = xb.to(device), yb.to(device)
-                opt.zero_grad(set_to_none=True)
-                loss = focal_loss(net(xb), yb)
-                loss.backward()
-                nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-                opt.step()
-            val_logits = _predict_logits(net, X_val)
-            val_probs = _softmax(val_logits)
-            active_prob = val_probs[:, 1] + val_probs[:, 2]
-            active_true = (y_val != 0).astype(int)
-            val_auc = _safe_auc_local(active_true, active_prob)
-            dir_acc = _direction_accuracy_local(y_val, val_probs) / 100.0
-            try:
-                val_loss = log_loss(y_val, np.clip(val_probs, 1e-6, 1-1e-6), labels=[0, 1, 2])
-            except Exception:
-                val_loss = 99.0
-            score = val_auc + 0.10 * max(0.0, dir_acc - 0.50)
-            scheduler.step(score)
-            improved = (score > best_score + 1e-4) or (abs(score - best_score) < 1e-4 and val_loss < best_loss)
-            if improved:
-                best_score, best_loss, patience = score, val_loss, 0
-                best_state = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
-            else:
-                patience += 1
-            if patience >= LSTM_PATIENCE:
-                break
-        if best_state is not None:
-            net.load_state_dict(best_state)
-        val_logits = _predict_logits(net, X_val)
-        temp = _fit_temperature(val_logits, y_val)
-        val_probs = _softmax(val_logits, temp)
-        val_active_auc = _safe_auc_local((y_val != 0).astype(int), val_probs[:, 1] + val_probs[:, 2])
-        val_dir_acc = _direction_accuracy_local(y_val, val_probs)
-        X_test_raw, y_test, test_dates = _make_sequences_from_frame(target_feat, seq_len, "test_target")
-        if len(X_test_raw) == 0:
-            return None
-        X_test = np.clip((X_test_raw - mu) / sd, -6.0, 6.0)
-        test_probs = _softmax(_predict_logits(net, X_test), temp)
         return {
-            "seq_len": int(seq_len), "seed": int(seed), "val_auc": round(float(val_active_auc), 4),
-            "val_direction_accuracy": round(float(val_dir_acc), 1), "temperature": round(float(temp), 3),
-            "test_probs3": np.asarray(test_probs, dtype=float), "test_labels3": np.asarray(y_test, dtype=int),
-            "test_dates": test_dates, "train_samples": int(len(y_train)), "val_samples": int(len(y_val)),
-            "class_weights": [round(float(x), 3) for x in cw],
+            "signals": _dummy_lstm_signals_from_xgb(xgb_df, test_days, "global_lstm_disabled"),
+            "metrics": {
+                "accuracy": None, "balanced_accuracy": None, "roc_auc": None,
+                "direction_accuracy": None, "validation_auc": None,
+                "model_status": "disabled",
+            },
+            "lstm_reliable": False,
         }
 
-    candidate_lengths = LSTM_SEQUENCE_LENGTHS[:2] if len(LSTM_SEQUENCE_LENGTHS) > 2 else LSTM_SEQUENCE_LENGTHS
-    candidate_seeds = LSTM_SEEDS[:1]
-    candidates = []
-    for seq_len in candidate_lengths:
-        for seed in candidate_seeds:
-            try:
-                cand = _train_candidate(seq_len, seed)
-                if cand is not None:
-                    candidates.append(cand)
-            except Exception as exc:
-                logger.warning(f"[PREDICT] Global LSTM candidate failed seq={seq_len} seed={seed}: {exc}")
-    if not candidates:
-        logger.warning("[PREDICT] Global LSTM produced no valid candidates")
+    if xgb_df is None or xgb_df.empty or len(xgb_df) < max(30, test_days):
         return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
 
-    best_val_auc = max(c["val_auc"] for c in candidates)
-    selected = [c for c in candidates if c["val_auc"] >= max(0.50, best_val_auc - 0.025)]
-    selected = sorted(selected, key=lambda c: (c["val_auc"], c["val_direction_accuracy"]), reverse=True)[:3]
-    all_dates = sorted(set.intersection(*[set(pd.Timestamp(d).date() for d in c["test_dates"]) for c in selected]))
-    if not all_dates:
-        return {"signals": None, "metrics": {"accuracy": None, "roc_auc": None}, "lstm_reliable": False}
-    weights = np.asarray([max(c["val_auc"] - 0.49, 0.01) for c in selected], dtype=float)
-    weights = weights / weights.sum()
-    prob_by_date, label_by_date = {}, {}
-    mappings = [{pd.Timestamp(dt).date(): i for i, dt in enumerate(c["test_dates"])} for c in selected]
-    for d in all_dates:
-        parts, labels_for_d = [], []
-        for w, c, mapping in zip(weights, selected, mappings):
-            i = mapping.get(d)
-            if i is not None:
-                parts.append(w * c["test_probs3"][i])
-                labels_for_d.append(c["test_labels3"][i])
-        if parts:
-            p = np.sum(parts, axis=0)
-            p = np.clip(p, 1e-6, 1.0)
-            prob_by_date[d] = p / p.sum()
-            good_labels = [x for x in labels_for_d if x >= 0]
-            label_by_date[d] = int(good_labels[0]) if good_labels else -1
+    try:
+        from app.ml.global_lstm_service import predict_saved_global_lstm_for_target
+    except Exception as exc:
+        logger.warning(f"[PREDICT] Could not import saved Global LSTM service: {exc}")
+        return {
+            "signals": _dummy_lstm_signals_from_xgb(xgb_df, test_days, "global_lstm_service_import_failed"),
+            "metrics": {
+                "accuracy": None, "balanced_accuracy": None, "roc_auc": None,
+                "direction_accuracy": None, "validation_auc": None,
+                "model_status": "service_import_failed",
+                "message": "Create app/ml/global_lstm_service.py and app/ml/train_global_lstm.py, then run python -m app.ml.train_global_lstm.",
+            },
+            "lstm_reliable": False,
+        }
 
-    te_slice = df.iloc[split:].copy().reset_index(drop=True)
-    te_slice["date_key"] = pd.to_datetime(te_slice["date"]).dt.date
-    probs_rows, labels_rows = [], []
-    for d in te_slice["date_key"]:
-        probs_rows.append(prob_by_date.get(d, np.array([1.0, 0.0, 0.0])))
-        labels_rows.append(label_by_date.get(d, -1))
-    probs3 = np.asarray(probs_rows, dtype=float)
-    labels3 = np.asarray(labels_rows, dtype=int)
-    active_prob = probs3[:, 1] + probs3[:, 2]
-    valid_metric = labels3 >= 0
-    if valid_metric.sum() >= 20 and len(np.unique((labels3[valid_metric] != 0).astype(int))) > 1:
-        active_true = (labels3[valid_metric] != 0).astype(int)
-        active_pred = (active_prob[valid_metric] >= CONFIDENCE_THRESHOLD).astype(int)
-        active_acc = float(accuracy_score(active_true, active_pred) * 100.0)
-        try:
-            balanced_acc = float(balanced_accuracy_score(active_true, active_pred) * 100.0)
-        except Exception:
-            balanced_acc = active_acc
-        active_auc = _safe_auc_local(active_true, active_prob[valid_metric])
-        direction_acc = _direction_accuracy_local(labels3[valid_metric], probs3[valid_metric])
-    else:
-        active_acc = balanced_acc = direction_acc = 0.0
-        active_auc = 0.5
+    te_slice = xgb_df.tail(max(1, int(test_days))).copy().reset_index(drop=True)
+    try:
+        trend_state = _prophet_trend_state(honest_fc, te_slice["date"].values)
+    except Exception:
+        trend_state = ["flat"] * len(te_slice)
 
-    trend_state = _prophet_trend_state(honest_fc, te_slice["date"].values)
-    model_direction = np.where(probs3[:, 1] >= probs3[:, 2], "BUY", "SELL")
-    sigs, strengths = [], []
-    for p, md, trend in zip(active_prob, model_direction, trend_state):
-        if p < CONFIDENCE_THRESHOLD:
-            sigs.append("HOLD"); strengths.append("LOW PROB")
-        elif trend == "flat":
-            sigs.append("HOLD"); strengths.append("FLAT GATE")
-        elif md == "BUY" and trend == "up":
-            sigs.append("BUY"); strengths.append("ACTIVE")
-        elif md == "SELL" and trend == "down":
-            sigs.append("SELL"); strengths.append("ACTIVE")
-        else:
-            sigs.append("HOLD"); strengths.append("DIRECTION CONFLICT")
+    target_ohlcv = xgb_df[["date", "Open", "High", "Low", "Close", "Volume"]].copy()
+    try:
+        result = predict_saved_global_lstm_for_target(
+            target_ohlcv_df=target_ohlcv,
+            test_days=test_days,
+            confidence_threshold=CONFIDENCE_THRESHOLD,
+            target_ticker="__TARGET__",
+            prophet_trend_state=trend_state,
+            logger=logger,
+        )
+    except Exception as exc:
+        logger.warning(f"[PREDICT] Saved Global LSTM prediction failed: {exc}")
+        return {
+            "signals": _dummy_lstm_signals_from_xgb(xgb_df, test_days, "global_lstm_prediction_failed"),
+            "metrics": {
+                "accuracy": None, "balanced_accuracy": None, "roc_auc": None,
+                "direction_accuracy": None, "validation_auc": None,
+                "model_status": "prediction_failed",
+                "message": str(exc),
+            },
+            "lstm_reliable": False,
+        }
 
-    sigs_df = pd.DataFrame({
-        "date": te_slice["date"].values, "Close": te_slice["Close"].values,
-        "prob_good_entry": np.round(active_prob, 4),
-        "lstm_cash_prob": np.round(probs3[:, 0], 4), "lstm_long_prob": np.round(probs3[:, 1], 4),
-        "lstm_short_prob": np.round(probs3[:, 2], 4), "model_direction": model_direction,
-        "prophet_uptrend": (trend_state == "up").astype(int), "prophet_trend_state": trend_state,
-        "signal": sigs, "strength": strengths,
-    })
-    regime_cols = ["date", "bullish_regime", "bullish_regime_momentum_pct", "bullish_regime_fast_momentum_pct", "bullish_regime_sma_slope_pct"]
-    regime = _attach_bullish_regime_columns(xgb_df[["date", "Close"]].copy(), "Close")
-    sigs_df = sigs_df.merge(regime[[c for c in regime_cols if c in regime.columns]], on="date", how="left")
+    sigs_df = result.get("signals")
+    if sigs_df is None or getattr(sigs_df, "empty", True):
+        reason = result.get("metrics", {}).get("model_status", "saved_global_lstm_unavailable")
+        sigs_df = _dummy_lstm_signals_from_xgb(xgb_df, test_days, str(reason))
+        result["signals"] = sigs_df
 
-    train_counts_total = np.zeros(3, dtype=int)
-    val_counts_total = np.zeros(3, dtype=int)
-    for frame in all_frames:
-        if "direction_label" in frame.columns:
-            dates = pd.to_datetime(frame["date"])
-            tr = frame[dates < val_start_date]["direction_label"].dropna().astype(int)
-            va = frame[(dates >= val_start_date) & (dates < test_start_date)]["direction_label"].dropna().astype(int)
-            train_counts_total += np.bincount(tr, minlength=3)[:3]
-            val_counts_total += np.bincount(va, minlength=3)[:3]
-    test_counts = np.bincount(labels3[labels3 >= 0].astype(int), minlength=3)
-    has_enough_global_data = sum(int(c.get("train_samples", 0)) for c in selected) >= 3000
-    lstm_reliable = bool(has_enough_global_data and active_auc >= LSTM_MIN_AUC and
-                         balanced_acc >= max(50.0, LSTM_MIN_ACCURACY - 8.0) and
-                         direction_acc >= 52.0 and best_val_auc >= LSTM_MIN_VAL_AUC)
-    selected_summary = [{
-        "seq_len": int(c["seq_len"]), "seed": int(c["seed"]), "val_auc": float(c["val_auc"]),
-        "val_direction_accuracy": float(c["val_direction_accuracy"]), "temperature": float(c["temperature"]),
-        "train_samples": int(c.get("train_samples", 0)), "val_samples": int(c.get("val_samples", 0)),
-    } for c in selected]
-    logger.info("[PREDICT] Global LSTM selected=%s active_auc=%.4f active_acc=%.1f bal_acc=%.1f dir_acc=%.1f reliable=%s",
-                selected_summary, active_auc, active_acc, balanced_acc, direction_acc, lstm_reliable)
-    return {
-        "signals": sigs_df,
-        "metrics": {
-            "accuracy": round(float(active_acc), 1), "balanced_accuracy": round(float(balanced_acc), 1),
-            "roc_auc": round(float(active_auc), 4), "direction_accuracy": round(float(direction_acc), 1),
-            "validation_auc": round(float(best_val_auc), 4), "selected_candidates": selected_summary,
-            "sequence_lengths": candidate_lengths, "label_mode": "global_nifty50_directional_3class_volatility_adjusted",
-            "label_horizon_days": int(GLOBAL_LSTM_LABEL_HORIZON), "global_universe": "Nifty 50 + target stock history",
-            "global_tickers_requested": int(min(GLOBAL_LSTM_MAX_TICKERS, len(NIFTY50_YAHOO_SYMBOLS))),
-            "global_tickers_used": int(max(0, len(all_frames) - 1)), "feature_count": int(len(GLOBAL_LSTM_FEATURE_COLS)),
-            "train_label_counts": {"cash": int(train_counts_total[0]), "long": int(train_counts_total[1]), "short": int(train_counts_total[2])},
-            "validation_label_counts": {"cash": int(val_counts_total[0]), "long": int(val_counts_total[1]), "short": int(val_counts_total[2])},
-            "test_label_counts": {"cash": int(test_counts[0]), "long": int(test_counts[1]), "short": int(test_counts[2])},
-        },
-        "lstm_reliable": lstm_reliable,
-    }
+    # Attach bullish-regime columns expected by strategy diagnostics/backtests.
+    try:
+        regime_cols = [
+            "date", "bullish_regime", "bullish_regime_momentum_pct",
+            "bullish_regime_fast_momentum_pct", "bullish_regime_sma_slope_pct",
+        ]
+        regime = _attach_bullish_regime_columns(xgb_df[["date", "Close"]].copy(), "Close")
+        sigs_df = sigs_df.drop(columns=[c for c in regime_cols if c in sigs_df.columns and c != "date"], errors="ignore")
+        sigs_df = sigs_df.merge(regime[[c for c in regime_cols if c in regime.columns]], on="date", how="left")
+        result["signals"] = sigs_df
+    except Exception as exc:
+        logger.warning(f"[PREDICT] Could not attach regime columns to LSTM signals: {exc}")
+
+    # Backward-compatible metric shape for dashboard.
+    metrics = result.get("metrics", {}) or {}
+    if "roc_auc" not in metrics and "active_roc_auc" in metrics:
+        metrics["roc_auc"] = metrics.get("active_roc_auc")
+    if "accuracy" not in metrics and "active_accuracy" in metrics:
+        metrics["accuracy"] = metrics.get("active_accuracy")
+    metrics.setdefault("label_mode", "saved_global_lstm_relative_return_3class")
+    metrics.setdefault("global_universe", "Saved global NSE/Nifty-style universe")
+    metrics.setdefault("feature_count", len(GLOBAL_LSTM_FEATURE_COLS))
+    result["metrics"] = metrics
+    result["lstm_reliable"] = bool(result.get("lstm_reliable", False))
+
+    logger.info(
+        "[PREDICT] Saved Global LSTM status=%s roc_auc=%s balanced_acc=%s reliable=%s",
+        metrics.get("model_status"), metrics.get("roc_auc"), metrics.get("balanced_accuracy"), result["lstm_reliable"],
+    )
+    return result
 
 # -- Ensemble --
 
@@ -1797,14 +1539,29 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
     xgb_cols += [c for c in regime_cols if c in xgb_sigs.columns]
     xgb = xgb_sigs[xgb_cols].copy()
     xgb.rename(columns={"prob_good_entry": "xgb_prob"}, inplace=True)
-    lst = lstm_sigs[["date","prob_good_entry"]].rename(
-        columns={"prob_good_entry":"lstm_prob"})
-    df  = xgb.merge(lst, on="date", how="inner")
 
-    # Adaptive weighting: if LSTM is still weak after the v3 directional-label improvements,
-    # exclude it from the ensemble instead of letting a bad sequence model drag
-    # down a strong XGBoost signal. When LSTM clears reliability gates, restore
-    # the configured XGBoost/LSTM weights.
+    lstm_cols = ["date", "prob_good_entry"]
+    for c in [
+        "signal", "strength", "raw_lstm_signal", "lstm_cash_prob", "lstm_long_prob", "lstm_short_prob",
+        "entry_threshold_used", "long_entry_threshold", "avoid_entry_threshold",
+        "active_entry_threshold", "exit_threshold_used",
+    ]:
+        if c in lstm_sigs.columns:
+            lstm_cols.append(c)
+    lst = lstm_sigs[lstm_cols].copy().rename(columns={"prob_good_entry": "lstm_prob"})
+    if "signal" in lst.columns:
+        lst.rename(columns={"signal": "lstm_signal"}, inplace=True)
+    if "strength" in lst.columns:
+        lst.rename(columns={"strength": "lstm_strength"}, inplace=True)
+
+    df = xgb.merge(lst, on="date", how="inner")
+    df["xgb_prob"] = pd.to_numeric(df["xgb_prob"], errors="coerce").fillna(0.0).clip(0, 1)
+    df["lstm_prob"] = pd.to_numeric(df["lstm_prob"], errors="coerce").fillna(0.0).clip(0, 1)
+
+    # Adaptive weighting with calibrated thresholds. The LSTM's saved
+    # thresholds are usually lower than the generic XGBoost threshold. So the
+    # ensemble now combines both the probabilities AND the model-specific action
+    # thresholds instead of forcing LSTM through the old 52% rule.
     if not lstm_reliable or lstm_auc < LSTM_MIN_AUC:
         eff_xgb, eff_lstm = 1.0, 0.0
         logger.info(
@@ -1814,18 +1571,39 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
     else:
         eff_xgb, eff_lstm = XGB_WEIGHT, LSTM_WEIGHT
 
-    df["ensemble_prob"] = (eff_xgb*df["xgb_prob"] + eff_lstm*df["lstm_prob"]).round(4)
-    df["xgb_agrees"]    = (df["xgb_prob"] >= ENSEMBLE_THRESHOLD).astype(int)
-    df["lstm_agrees"]   = (df["lstm_prob"] >= ENSEMBLE_THRESHOLD).astype(int)
-    df["both_agree"]    = ((df["xgb_agrees"]==1)&(df["lstm_agrees"]==1)).astype(int)
+    df["xgb_entry_threshold"] = float(ENSEMBLE_THRESHOLD)
+    if "entry_threshold_used" in df.columns:
+        df["lstm_entry_threshold"] = pd.to_numeric(df["entry_threshold_used"], errors="coerce").fillna(ENSEMBLE_THRESHOLD).clip(0, 1)
+    elif "active_entry_threshold" in df.columns:
+        df["lstm_entry_threshold"] = pd.to_numeric(df["active_entry_threshold"], errors="coerce").fillna(ENSEMBLE_THRESHOLD).clip(0, 1)
+    else:
+        df["lstm_entry_threshold"] = float(ENSEMBLE_THRESHOLD)
+
+    df["ensemble_entry_threshold"] = (
+        eff_xgb * df["xgb_entry_threshold"] + eff_lstm * df["lstm_entry_threshold"]
+    ).round(4)
+    df["ensemble_prob"] = (eff_xgb * df["xgb_prob"] + eff_lstm * df["lstm_prob"]).round(4)
+
+    # Normalised threshold-aware score for internal diagnostics/UI. This is not
+    # shown as the headline confidence, but it helps avoid unfairly penalising
+    # LSTM just because its calibrated threshold is lower than XGBoost's.
+    xgb_score = _threshold_score(df["xgb_prob"], df["xgb_entry_threshold"])
+    lstm_score = _threshold_score(df["lstm_prob"], df["lstm_entry_threshold"])
+    df["ensemble_threshold_score"] = (eff_xgb * xgb_score + eff_lstm * lstm_score).round(4)
+
+    df["xgb_agrees"] = (df["xgb_prob"] >= df["xgb_entry_threshold"]).astype(int)
+    df["lstm_agrees"] = (df["lstm_prob"] >= df["lstm_entry_threshold"]).astype(int)
+    df["both_agree"] = ((df["xgb_agrees"] == 1) & (df["lstm_agrees"] == 1)).astype(int)
 
     trend_state = _prophet_trend_state(honest_fc, df["date"].values)
     df["prophet_trend_state"] = trend_state
     df["prophet_up"] = (trend_state == "up").astype(int)
 
     sigs, strs = [], []
-    for i, row in df.iterrows():
-        act = row["ensemble_prob"] >= ENSEMBLE_THRESHOLD
+    for _, row in df.iterrows():
+        # Action becomes active if the raw weighted probability crosses the
+        # weighted threshold OR the threshold-normalised score crosses 0.50.
+        act = (row["ensemble_prob"] >= row["ensemble_entry_threshold"]) or (row["ensemble_threshold_score"] >= 0.50)
         trend = row["prophet_trend_state"]
         if act and trend == "up":
             sigs.append("BUY")
@@ -1834,18 +1612,91 @@ def generate_ensemble_signals(xgb_sigs: pd.DataFrame,
             sigs.append("SELL")
             strs.append("STRONG" if row["both_agree"] else "NORMAL")
         elif act and trend == "flat":
-            # Important for UI: this is not a low-confidence HOLD.
-            # The timing models are active, but Prophet's direction gate says the
-            # price trend is sideways, so the active trade is blocked.
             sigs.append("HOLD")
             strs.append("FLAT GATE")
         else:
             sigs.append("HOLD")
             strs.append("LOW PROB")
-    df["signal"] = sigs; df["strength"] = strs
+    df["signal"] = sigs
+    df["strength"] = strs
+
+    # Strategy/backtest/diagnostics now read these threshold columns.
+    df["entry_threshold_used"] = df["ensemble_entry_threshold"]
+    df["active_entry_threshold"] = df["ensemble_entry_threshold"]
+    df["exit_threshold_used"] = np.minimum(float(EXIT_PROB_THRESHOLD), df["ensemble_entry_threshold"] * 0.85).round(4)
     return df
 
 # -- Strategy conversion + diagnostics --
+
+# -- Model-specific threshold helpers --
+
+def _series_numeric(df: pd.DataFrame, col: str, fallback: float) -> pd.Series:
+    """Return a numeric Series aligned to df.index."""
+    if col in df.columns:
+        return pd.to_numeric(df[col], errors="coerce").fillna(float(fallback)).clip(0.0, 1.0)
+    return pd.Series([float(fallback)] * len(df), index=df.index, dtype=float)
+
+
+def _row_entry_thresholds(df: pd.DataFrame,
+                          fallback: float = CONFIDENCE_THRESHOLD,
+                          signal_col: str = "raw_advisory_signal") -> pd.Series:
+    """
+    Per-row entry threshold.
+
+    XGBoost still uses the global entry threshold, but the saved Global LSTM has
+    its own calibrated thresholds in thresholds.json. Earlier versions produced
+    a useful LSTM probability but then blocked it with the old 52% rule. This
+    helper lets strategy/backtest/diagnostics honour the threshold produced by
+    the model that generated the signal.
+    """
+    if df is None or df.empty:
+        return pd.Series(dtype=float)
+
+    if "entry_threshold_used" in df.columns:
+        return _series_numeric(df, "entry_threshold_used", fallback)
+
+    sig = df.get(signal_col, df.get("signal", pd.Series(["HOLD"] * len(df), index=df.index)))
+    sig = pd.Series(sig, index=df.index).fillna("HOLD").astype(str).str.upper()
+
+    long_t = _series_numeric(df, "long_entry_threshold", fallback)
+    avoid_t = _series_numeric(df, "avoid_entry_threshold", fallback)
+    active_t = _series_numeric(df, "active_entry_threshold", fallback)
+
+    out = pd.Series(float(fallback), index=df.index, dtype=float)
+    out = out.where(sig != "BUY", long_t)
+    out = out.where(sig != "SELL", avoid_t)
+    out = out.where(sig.isin(["BUY", "SELL"]), active_t)
+    return out.clip(0.0, 1.0)
+
+
+def _row_exit_thresholds(df: pd.DataFrame,
+                         fallback: float = EXIT_PROB_THRESHOLD) -> pd.Series:
+    """Per-row exit threshold, with a safe fallback for older model outputs."""
+    if df is None or df.empty:
+        return pd.Series(dtype=float)
+    if "exit_threshold_used" in df.columns:
+        return _series_numeric(df, "exit_threshold_used", fallback)
+    if "active_entry_threshold" in df.columns:
+        active_t = _series_numeric(df, "active_entry_threshold", CONFIDENCE_THRESHOLD)
+        return np.minimum(float(fallback), (active_t * 0.85).clip(0.0, 1.0))
+    return pd.Series([float(fallback)] * len(df), index=df.index, dtype=float)
+
+
+def _threshold_score(prob: pd.Series, threshold: pd.Series) -> pd.Series:
+    """
+    Convert model probabilities with different thresholds to a common 0-1 score.
+
+    A score of 0.50 means "exactly at this model's own action threshold".
+    This makes LSTM probabilities calibrated around 0.42-0.44 comparable with
+    XGBoost probabilities calibrated around 0.52, instead of unfairly treating
+    both as if they used the same threshold.
+    """
+    p = pd.to_numeric(prob, errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    t = pd.to_numeric(threshold, errors="coerce").fillna(CONFIDENCE_THRESHOLD).clip(0.05, 0.95)
+    below = 0.5 * (p / t)
+    above = 0.5 + 0.5 * ((p - t) / (1.0 - t))
+    return pd.Series(np.where(p >= t, above, below), index=p.index).clip(0.0, 1.0)
+
 
 def _normalise_trend_state(df: pd.DataFrame) -> pd.Series:
     """Return a clean up/down/flat trend-state series for strategy rules."""
@@ -1954,7 +1805,9 @@ def build_entry_exit_strategy_signals(signals_df: pd.DataFrame,
 
     df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
     df["prophet_trend_state"] = list(_normalise_trend_state(df))
-    df["entry_quality"] = df["entry_prob"] >= entry_threshold
+    df["_entry_threshold_row"] = _row_entry_thresholds(df, entry_threshold)
+    df["_exit_threshold_row"] = _row_exit_thresholds(df, exit_threshold)
+    df["entry_quality"] = df["entry_prob"] >= df["_entry_threshold_row"]
     if "signal" in df.columns:
         df["raw_advisory_signal"] = df["signal"].astype(str).str.upper()
     else:
@@ -2200,7 +2053,9 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
 
     df["entry_prob"] = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
     df["prophet_trend_state"] = list(_normalise_trend_state(df))
-    df["entry_quality"] = df["entry_prob"] >= entry_threshold
+    df["_entry_threshold_row"] = _row_entry_thresholds(df, entry_threshold)
+    df["_exit_threshold_row"] = _row_exit_thresholds(df, exit_threshold)
+    df["entry_quality"] = df["entry_prob"] >= df["_entry_threshold_row"]
     if "signal" in df.columns:
         df["raw_advisory_signal"] = df["signal"].astype(str).str.upper()
     else:
@@ -2225,18 +2080,22 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
         raw_sig = str(row.get("raw_advisory_signal", "HOLD")).upper()
         desired = "CASH"
         bullish_regime = bool(row.get("bullish_regime", False))
-        if raw_sig == "BUY" and prob >= entry_threshold:
+        row_entry_threshold = float(row.get("_entry_threshold_row", entry_threshold))
+        row_exit_threshold = float(row.get("_exit_threshold_row", exit_threshold))
+        entry_ok = prob >= row_entry_threshold
+
+        if raw_sig == "BUY" and entry_ok:
             desired = "LONG"
-        elif raw_sig == "SELL" and prob >= entry_threshold:
+        elif raw_sig == "SELL" and entry_ok:
             if bullish_regime:
                 desired = "CASH"
                 reason = "SHORT_BLOCKED_BULLISH_REGIME"
             else:
                 desired = "SHORT"
-        elif prob >= entry_threshold and trend == "flat":
+        elif entry_ok and trend == "flat":
             desired = "CASH"
             reason = "ENTRY_BLOCKED_FLAT_TREND"
-        elif prob >= entry_threshold:
+        elif entry_ok:
             desired = "CASH"
             reason = "DIRECTION_CONFLICT_OR_GATE_BLOCK"
         else:
@@ -2278,7 +2137,7 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
                 position = "CASH"
                 entry_price = None
                 entry_date = None
-            elif prob <= exit_threshold:
+            elif prob <= row_exit_threshold:
                 sig = "CASH"
                 reason = "EXIT_LONG_PROB_DROPPED"
                 position = "CASH"
@@ -2327,7 +2186,7 @@ def build_long_short_strategy_signals(signals_df: pd.DataFrame,
                 position = "CASH"
                 entry_price = None
                 entry_date = None
-            elif prob <= exit_threshold:
+            elif prob <= row_exit_threshold:
                 sig = "CASH"
                 reason = "EXIT_SHORT_PROB_DROPPED"
                 position = "CASH"
@@ -2629,15 +2488,21 @@ def signal_diagnostics(signals_df: pd.DataFrame,
 
     if prob_col and prob_col in df.columns:
         probs = pd.to_numeric(df[prob_col], errors="coerce").fillna(0.0).clip(0, 1)
-        high_probability_days = int((probs >= CONFIDENCE_THRESHOLD).sum())
-        exit_probability_days = int((probs <= EXIT_PROB_THRESHOLD).sum())
-        low_probability_days = int((probs < CONFIDENCE_THRESHOLD).sum())
-        flat_gate_days = int(((probs >= CONFIDENCE_THRESHOLD) & (trend_state == "flat")).sum())
+        entry_thresholds = _row_entry_thresholds(df, CONFIDENCE_THRESHOLD)
+        exit_thresholds = _row_exit_thresholds(df, EXIT_PROB_THRESHOLD)
+        high_probability_days = int((probs >= entry_thresholds).sum())
+        exit_probability_days = int((probs <= exit_thresholds).sum())
+        low_probability_days = int((probs < entry_thresholds).sum())
+        flat_gate_days = int(((probs >= entry_thresholds) & (trend_state == "flat")).sum())
+        entry_threshold_display = round(float(np.nanmedian(entry_thresholds)), 3) if len(entry_thresholds) else round(CONFIDENCE_THRESHOLD, 3)
+        exit_threshold_display = round(float(np.nanmedian(exit_thresholds)), 3) if len(exit_thresholds) else round(EXIT_PROB_THRESHOLD, 3)
     else:
         high_probability_days = 0
         exit_probability_days = 0
         low_probability_days = 0
         flat_gate_days = 0
+        entry_threshold_display = round(CONFIDENCE_THRESHOLD, 3)
+        exit_threshold_display = round(EXIT_PROB_THRESHOLD, 3)
 
     bullish_regime_days = int(pd.Series(df.get("bullish_regime", pd.Series([False] * len(df))), index=df.index).fillna(False).astype(bool).sum())
     trade_reasons = df.get("trade_reason", pd.Series([""] * len(df))).fillna("").astype(str).str.upper()
@@ -2686,8 +2551,9 @@ def signal_diagnostics(signals_df: pd.DataFrame,
         "sell_signals": sell_signals,
         "hold_signals": int((sigs == "HOLD").sum()),
         "completed_trades": completed,
-        "entry_threshold": round(CONFIDENCE_THRESHOLD, 3),
-        "exit_threshold": round(EXIT_PROB_THRESHOLD, 3),
+        "entry_threshold": entry_threshold_display,
+        "exit_threshold": exit_threshold_display,
+        "threshold_mode": "model_specific" if ("entry_threshold_used" in df.columns or "active_entry_threshold" in df.columns) else "global",
         "stop_loss_pct": round(STOP_LOSS_PCT * 100, 2),
         "take_profit_pct": round(TAKE_PROFIT_PCT * 100, 2),
         "max_hold_days": int(MAX_HOLD_DAYS),
@@ -3311,7 +3177,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             import torch  # noqa — check availability
             if xgb_df_feat is not None and len(xgb_df_feat)>=SEQUENCE_LENGTH+TEST_DAYS+20:
                 if cancelled(): return
-                progress(62, "Training Global Nifty-50 LSTM sequence model…")
+                progress(62, "Loading saved Global LSTM sequence model…")
                 lstm_result = run_lstm_pipeline(xgb_df_feat, TEST_DAYS, honest_fc)
                 lstm_result["signals"] = _relax_flat_prophet_gate_when_unreliable(lstm_result.get("signals"), "prob_good_entry", prophet_gate_quality)
                 if lstm_result["signals"] is not None:
@@ -3641,6 +3507,7 @@ def _run_pipeline(job_id: str, symbol: str, target_date: str,
             "test_days": TEST_DAYS, "ml_lookback_years": ML_LOOKBACK_YEARS,
             "entry_threshold": ENSEMBLE_THRESHOLD,
             "xgb_weight": XGB_WEIGHT, "lstm_weight": LSTM_WEIGHT,
+            "ensemble_threshold_mode": "model_specific_calibrated",
             "train_cutoff": train_df["ds"].max().strftime("%Y-%m-%d"),
             "holiday_source": "pandas_market_calendars (NSE auto)"
                                if len(INDIAN_HOLIDAYS)>100 else "hardcoded fallback",
