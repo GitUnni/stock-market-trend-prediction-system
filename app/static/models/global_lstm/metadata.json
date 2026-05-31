@@ -1,0 +1,68 @@
+{
+  "model_name": "global_lstm_nse_relative_return_v1",
+  "trained_at": "2026-05-31T10:16:05+00:00",
+  "expires_at": "2026-06-03T10:16:05+00:00",
+  "sequence_length": 45,
+  "label_horizon_days": 15,
+  "feature_count": 37,
+  "universe_requested": 50,
+  "frames_used": 50,
+  "total_sequences": 141830,
+  "active_roc_auc": 0.6117,
+  "balanced_accuracy": 54.9,
+  "direction_accuracy": 55.1,
+  "active_accuracy": 44.5,
+  "temperature": 0.8435,
+  "thresholds": {
+    "long_entry_threshold": 0.42,
+    "avoid_entry_threshold": 0.435,
+    "active_entry_threshold": 0.5
+  },
+  "walk_forward_metrics": [
+    {
+      "active_accuracy": 29.471544715447155,
+      "balanced_accuracy": 49.300689600106146,
+      "active_roc_auc": 0.5574229305168747,
+      "direction_accuracy": 52.000448279726555,
+      "temperature": 4.0,
+      "best_epoch": 6,
+      "class_weights": [
+        1.1280689239501953,
+        1.0261638164520264,
+        0.8779430389404297
+      ],
+      "val_year": 2024,
+      "train_samples": 112799,
+      "val_samples": 12300,
+      "thresholds": {
+        "long_entry_threshold": 0.42,
+        "avoid_entry_threshold": 0.42,
+        "active_entry_threshold": 0.5
+      }
+    },
+    {
+      "active_accuracy": 31.895582329317268,
+      "balanced_accuracy": 50.083801006380405,
+      "active_roc_auc": 0.5645535620505207,
+      "direction_accuracy": 51.13542769737616,
+      "temperature": 1.991304347826087,
+      "best_epoch": 0,
+      "class_weights": [
+        1.0896806716918945,
+        0.9923588633537292,
+        0.9305788278579712
+      ],
+      "val_year": 2025,
+      "train_samples": 120000,
+      "val_samples": 12450,
+      "thresholds": {
+        "long_entry_threshold": 0.42,
+        "avoid_entry_threshold": 0.42,
+        "active_entry_threshold": 0.5
+      }
+    }
+  ],
+  "reliable_for_ensemble": true,
+  "status": "candidate_replaced_old",
+  "old_active_roc_auc": 0.0
+}

@@ -1,0 +1,5 @@
+{
+  "long_entry_threshold": 0.42,
+  "avoid_entry_threshold": 0.435,
+  "active_entry_threshold": 0.5
+}
