@@ -3666,22 +3666,22 @@
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">MAE</div>
                                         <div class="predict-metric-value" id="predMAE">—</div>
-                                        <div class="predict-metric-desc">Mean Abs. Error (₹)</div>
+                                        <div class="predict-metric-desc" id="predMAEHint">Lower better · compare as % of price</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">RMSE</div>
                                         <div class="predict-metric-value" id="predRMSE">—</div>
-                                        <div class="predict-metric-desc">Root Mean Sq. Error (₹)</div>
+                                        <div class="predict-metric-desc" id="predRMSEHint">Lower better · penalizes big misses</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">MAPE</div>
                                         <div class="predict-metric-value" id="predMAPE">—</div>
-                                        <div class="predict-metric-desc">Mean Abs. % Error</div>
+                                        <div class="predict-metric-desc" id="predMAPEHint">≤2% excellent · ≤5% good · >10% weak</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">Direction Acc.</div>
                                         <div class="predict-metric-value" id="predDirAcc">—</div>
-                                        <div class="predict-metric-desc">Up/Down Accuracy</div>
+                                        <div class="predict-metric-desc" id="predDirAccHint">>55% useful · >60% good · >65% strong</div>
                                     </div>
                                 </div>
 
@@ -3691,12 +3691,12 @@
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">Timing Accuracy</div>
                                         <div class="predict-metric-value" id="predXGBAccuracy">—</div>
-                                        <div class="predict-metric-desc">% correct entry/exit timing</div>
+                                        <div class="predict-metric-desc" id="predXGBAccuracyHint">>55% useful · >60% good · >65% strong</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">ROC-AUC</div>
                                         <div class="predict-metric-value" id="predXGBAUC">—</div>
-                                        <div class="predict-metric-desc">&gt;0.55 useful · &gt;0.65 good</div>
+                                        <div class="predict-metric-desc" id="predXGBAUCHint">>0.55 useful · >0.65 good · >0.75 strong</div>
                                     </div>
                                 </div>
 
@@ -3709,22 +3709,22 @@
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">Active Accuracy</div>
                                         <div class="predict-metric-value" id="predLSTMAccuracy">—</div>
-                                        <div class="predict-metric-desc">Trade vs cash accuracy</div>
+                                        <div class="predict-metric-desc" id="predLSTMAccuracyHint">>50% useful · >60% good</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">Balanced Acc.</div>
                                         <div class="predict-metric-value" id="predLSTMBalAcc">—</div>
-                                        <div class="predict-metric-desc">Handles class imbalance</div>
+                                        <div class="predict-metric-desc" id="predLSTMBalAccHint">>52% useful · >55% good · >60% strong</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">Active ROC-AUC</div>
                                         <div class="predict-metric-value" id="predLSTMAUC">—</div>
-                                        <div class="predict-metric-desc">Trade setup ranking</div>
+                                        <div class="predict-metric-desc" id="predLSTMAUCHint">>0.55 useful · >0.65 good · >0.75 strong</div>
                                     </div>
                                     <div class="predict-metric-card">
                                         <div class="predict-metric-label">Direction Acc.</div>
                                         <div class="predict-metric-value" id="predLSTMDirAcc">—</div>
-                                        <div class="predict-metric-desc">LONG vs SHORT setup</div>
+                                        <div class="predict-metric-desc" id="predLSTMDirAccHint">>55% useful · >60% good · >65% strong</div>
                                     </div>
                                 </div>
                                 <p style="font-size:11px;color:#aaa;padding:0 0 8px 0;">
@@ -5927,11 +5927,33 @@ function renderPredictionResults(data) {
     /* Tab 2: Validation metrics */
     document.getElementById('predTestPeriodLabel').textContent = `(${data.test_days}-day test window)`;
     const pm = data.prophet_metrics || {};
-    document.getElementById('predMAE').textContent    = pm.mae    !== null && pm.mae    !== undefined ? '₹' + pm.mae.toFixed(2)    : 'N/A';
-    document.getElementById('predRMSE').textContent   = pm.rmse   !== null && pm.rmse   !== undefined ? '₹' + pm.rmse.toFixed(2)   : 'N/A';
-    document.getElementById('predMAPE').textContent   = pm.mape   !== null && pm.mape   !== undefined ? pm.mape.toFixed(2)  + '%'  : 'N/A';
-    document.getElementById('predDirAcc').textContent = pm.direction_accuracy !== null && pm.direction_accuracy !== undefined
+
+    const metricPresent = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v));
+    const metricPctOfPrice = (value) => {
+        if (!metricPresent(value) || !metricPresent(data.current_price) || data.current_price <= 0) return null;
+        return (Number(value) / Number(data.current_price)) * 100;
+    };
+    const setMetricText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+
+    document.getElementById('predMAE').textContent    = metricPresent(pm.mae)  ? '₹' + pm.mae.toFixed(2)    : 'N/A';
+    document.getElementById('predRMSE').textContent   = metricPresent(pm.rmse) ? '₹' + pm.rmse.toFixed(2)   : 'N/A';
+    document.getElementById('predMAPE').textContent   = metricPresent(pm.mape) ? pm.mape.toFixed(2)  + '%'  : 'N/A';
+    document.getElementById('predDirAcc').textContent = metricPresent(pm.direction_accuracy)
         ? pm.direction_accuracy.toFixed(1) + '%' : 'N/A';
+
+    const maePct = metricPctOfPrice(pm.mae);
+    const rmsePct = metricPctOfPrice(pm.rmse);
+    setMetricText('predMAEHint', metricPresent(maePct)
+        ? `Lower better · ${maePct.toFixed(2)}% of price · ≤2% good`
+        : 'Lower better · compare as % of price');
+    setMetricText('predRMSEHint', metricPresent(rmsePct)
+        ? `Lower better · ${rmsePct.toFixed(2)}% of price · ≤3% good`
+        : 'Lower better · penalizes big misses');
+    setMetricText('predMAPEHint', '≤2% excellent · ≤5% good · >10% weak');
+    setMetricText('predDirAccHint', '>55% useful · >60% good · >65% strong');
 
     const xm = data.xgb_metrics || {};
     document.getElementById('predXGBAccuracy').textContent = xm.accuracy !== null && xm.accuracy !== undefined
