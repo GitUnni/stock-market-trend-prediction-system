@@ -3575,7 +3575,7 @@
                     <div class="predict-loading" id="predictLoading">
                         <div class="predict-spinner"></div>
                         <div class="predict-loading-text" id="predictLoadingText">Starting prediction pipeline…</div>
-                        <div class="predict-loading-sub" id="predictLoadingSub">This takes 2–5 minutes. Prophet × 2 + XGBoost + LSTM + Ensemble are all training.</div>
+                        <div class="predict-loading-sub" id="predictLoadingSub">This can take longer on the first run. Prophet × 2 + XGBoost + Global Nifty-50 LSTM + Ensemble are training.</div>
                         <!-- Progress bar -->
                         <div style="width:100%;max-width:360px;background:#f0e0ff;border-radius:8px;height:8px;margin-top:8px;overflow:hidden;">
                             <div id="predictProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#f093fb,#f5576c);border-radius:8px;transition:width 0.6s ease;"></div>
@@ -3702,7 +3702,7 @@
 
                                 <!-- LSTM metrics -->
                                 <div class="predict-metrics-title">
-                                    🧠 LSTM — Sequence Pattern Classifier
+                                    🧠 Global LSTM — Nifty-50 Sequence Classifier
                                     <span id="predLSTMReliabilityNote"></span>
                                 </div>
                                 <div class="predict-metrics-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px;">
@@ -3728,9 +3728,9 @@
                                     </div>
                                 </div>
                                 <p style="font-size:11px;color:#aaa;padding:0 0 8px 0;">
-                                    ℹ️ XGBoost predicts binary timing quality. The improved LSTM now predicts three classes:
+                                    ℹ️ XGBoost predicts binary timing quality. The Global LSTM now learns from Nifty-50 + target-stock sequences and predicts three classes:
                                     <strong>CASH</strong>, <strong>LONG setup</strong>, and <strong>SHORT setup</strong>.
-                                    Active ROC-AUC checks whether LSTM can separate trade setups from cash days.
+                                    Active ROC-AUC checks whether the global sequence model can separate trade setups from cash days.
                                     Prophet predicts the actual price level.
                                 </p>
                             </div>
@@ -3799,7 +3799,7 @@
                                 </div>
                                 <div class="ensemble-explain-grid">
                                     <div class="ensemble-explain-card"><strong>XGBoost prob</strong><span>Short-term timing score based on technical features.</span></div>
-                                    <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Sequence-pattern timing score from recent price behaviour. It is used only when validation quality is acceptable.</span></div>
+                                    <div class="ensemble-explain-card"><strong>LSTM prob</strong><span>Global sequence-pattern timing score trained on Nifty-50 + target-stock history. It is used only when validation quality is acceptable.</span></div>
                                     <div class="ensemble-explain-card"><strong>Signal</strong><span>SELL means bearish/avoid in the raw ML signal. If the stock is in a strong bullish regime, the main card may show WAIT / OVEREXTENDED instead. Short-side trading appears only inside Advanced Hypothetical backtest mode.</span></div>
                                 </div>
                                 <div class="predict-metrics-title" style="margin-top:8px;">Recent Signals (last 15 days)</div>
@@ -5676,7 +5676,7 @@ function _startPolling(jobId) {
             if (txtEl) txtEl.textContent = msg || 'Running…';
             if (subEl && pct < 50) subEl.textContent = 'Prophet training (30–60 s each pass)…';
             else if (subEl && pct < 65) subEl.textContent = 'XGBoost: feature engineering + training…';
-            else if (subEl && pct < 80) subEl.textContent = 'LSTM: improved multi-lookback sequence ensemble…';
+            else if (subEl && pct < 80) subEl.textContent = 'LSTM: training global Nifty-50 sequence model…';
             else if (subEl && pct < 90) subEl.textContent = 'Combining models into Ensemble…';
             else if (subEl) subEl.textContent = 'Almost done — assembling results…';
 
@@ -5772,8 +5772,8 @@ function openEnsembleInfo() {
         'The ensemble combines entry-quality timing probabilities with trend context. Prophet direction is shown separately; when Prophet validation quality is poor, it is not used as a hard gate.',
         [
             {title:'XGB prob', text:'XGBoost probability that the current setup is good enough for a fresh entry based on engineered technical indicators.'},
-            {title:'LSTM prob', text:'LSTM probability that recent sequence patterns look favourable. If validation is weak, it is excluded from ensemble weight instead of weakening the final signal.'},
-            {title:'Ensemble', text:'Weighted entry-quality probability. XGBoost is used alone when LSTM reliability is weak; LSTM contributes only after it clears validation gates.'},
+            {title:'LSTM prob', text:'Global LSTM probability from Nifty-50-trained sequence patterns. If validation is weak, it is excluded from ensemble weight instead of weakening the final signal.'},
+            {title:'Ensemble', text:'Weighted entry-quality probability. XGBoost is used alone when LSTM reliability is weak; Global LSTM contributes only after it clears validation gates.'},
             {title:'Signal', text:'BUY/SELL is shown in investor-friendly language. When Prophet validation quality is poor, Prophet direction is not allowed to hard-block a strong bullish-regime setup. Bearish signals in a strong bullish regime become WAIT / OVEREXTENDED instead of AVOID / EXIT.'},
             {title:'STRONG / NORMAL', text:'STRONG means both XGBoost and LSTM crossed the threshold. NORMAL means the weighted ensemble crossed it.'},
             {title:'FLAT GATE', text:'Timing probability was high, but Prophet trend was sideways. If Prophet quality is poor, this gate is relaxed for strong bullish-regime setups.'},
@@ -5853,7 +5853,7 @@ function renderPredictionResults(data) {
     const srcParts = [];
     if (data.xgb_metrics && data.xgb_metrics.accuracy !== null) srcParts.push('XGBoost ✓');
     if (data.lstm_metrics && data.lstm_metrics.accuracy !== null) {
-        srcParts.push(data.lstm_reliable ? 'LSTM ✓' : 'LSTM trained, excluded/downweighted');
+        srcParts.push(data.lstm_reliable ? 'LSTM ✓' : 'Global LSTM trained, excluded/downweighted');
     }
 
     let modelSourceText = 'Prophet + ML strategy layer';
