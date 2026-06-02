@@ -1170,6 +1170,33 @@ body.dm-active .backtest-compare-table .bh-row td {
 body.dm-active .backtest-compare-table .val-pos { color: #2ecc71; }
 body.dm-active .backtest-compare-table .val-neg { color: #ff6b6b; }
 
+body.dm-active .bt-trade-details-panel {
+    background: rgba(3, 8, 15, 0.92);
+    border-color: rgba(0, 232, 255, 0.16);
+}
+
+body.dm-active .bt-trade-details-header,
+body.dm-active .bt-trade-details-table th {
+    background: #03080f;
+    color: #4ab8cc;
+    border-color: rgba(0, 232, 255, 0.15);
+}
+
+body.dm-active .bt-trade-details-subtitle,
+body.dm-active .bt-trade-details-table .reason-cell {
+    color: #82a9bb;
+}
+
+body.dm-active .bt-trade-details-table td {
+    color: #c8f0ff;
+    border-color: rgba(0, 232, 255, 0.07);
+}
+
+body.dm-active .bt-trade-details-close {
+    background: rgba(0, 232, 255, 0.08);
+    color: #c8f0ff;
+}
+
 /* Low-trades warning banner inside table */
 body.dm-active .backtest-compare-table td[colspan="7"] {
     background: rgba(255, 224, 130, 0.06);
