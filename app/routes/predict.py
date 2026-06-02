@@ -2563,6 +2563,45 @@ def signal_diagnostics(signals_df: pd.DataFrame,
 
 # -- Generic backtester  --
 
+def _round_finite(x, nd=2):
+    return None if x is None or not np.isfinite(float(x)) else round(float(x), nd)
+
+
+def _format_trade_date(value):
+    if value is None or pd.isna(value):
+        return None
+    dt = pd.to_datetime(value, errors="coerce")
+    return None if pd.isna(dt) else str(dt.date())
+
+
+def _first_present(mapping: dict, *keys):
+    for key in keys:
+        value = mapping.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _serialise_trade_details(completed: list, default_side: str = "LONG") -> list:
+    trade_details = []
+    for idx, trade in enumerate(completed):
+        side = trade.get("side") or default_side
+        trade_details.append({
+            "trade_no": idx + 1,
+            "side": side,
+            "entry_date": _format_trade_date(_first_present(trade, "entry_date", "buy_date")),
+            "exit_date": _format_trade_date(_first_present(trade, "exit_date", "sell_date")),
+            "entry_price": _round_finite(_first_present(trade, "entry", "buy"), 2),
+            "exit_price": _round_finite(_first_present(trade, "exit", "sell"), 2),
+            "quantity": _round_finite(trade.get("quantity", 0.0), 4),
+            "quantity_left": _round_finite(trade.get("quantity_left", 0.0), 4),
+            "entry_reason": trade.get("entry_reason") or ("BUY_SIGNAL" if side == "LONG" else "SELL_SHORT_SIGNAL"),
+            "exit_reason": trade.get("exit_reason") or "CLOSE_POSITION",
+            "pnl_pct": _round_finite(trade.get("pnl_pct"), 2),
+        })
+    return trade_details
+
+
 def run_backtest(signals_df: pd.DataFrame,
                  price_col: str = "Close",
                  initial_capital: float = 100_000) -> dict:
@@ -2597,6 +2636,7 @@ def run_backtest(signals_df: pd.DataFrame,
             "status": "NO_DATA",
             "status_reason": "Backtest data unavailable",
             "portfolio_timeline": [],
+            "trade_details": [],
         }
 
     df = signals_df.copy()
@@ -2623,11 +2663,13 @@ def run_backtest(signals_df: pd.DataFrame,
             "status": "NO_DATA",
             "status_reason": "Backtest data unavailable",
             "portfolio_timeline": [],
+            "trade_details": [],
         }
 
     prices = df[price_col].astype(float).to_numpy()
     signals = df.get("signal", pd.Series(["HOLD"] * len(df))).fillna("HOLD").astype(str).str.upper().to_numpy()
     dates = pd.to_datetime(df["date"].values)
+    reasons = df.get("trade_reason", pd.Series([""] * len(df))).fillna("").astype(str).to_numpy()
 
     buy_signals = int(np.sum(signals == "BUY"))
     sell_signals = int(np.sum(signals == "SELL"))
@@ -2635,7 +2677,7 @@ def run_backtest(signals_df: pd.DataFrame,
 
     cash, shares, position = float(initial_capital), 0.0, "OUT"
     pvals, trades, completed = [], [], []
-    buy_px, buy_date = None, None
+    buy_px, buy_date, buy_qty, buy_reason = None, None, 0.0, ""
 
     for i, (px, sig) in enumerate(zip(prices, signals)):
         px = float(px)
@@ -2647,15 +2689,26 @@ def run_backtest(signals_df: pd.DataFrame,
             shares = cash / px
             cash = 0.0
             position = "IN"
-            buy_px, buy_date = px, dates[i]
+            buy_px, buy_date, buy_qty, buy_reason = px, dates[i], shares, str(reasons[i] or "BUY_SIGNAL")
             trades.append({"date": dates[i], "action": "BUY", "price": px, "shares": shares})
         elif sig == "SELL" and position == "IN":
             cash = shares * px
             pnl_pct = (px / buy_px - 1.0) * 100 if buy_px else 0.0
-            completed.append({"buy_date": buy_date, "sell_date": dates[i], "buy": buy_px, "sell": px, "pnl_pct": pnl_pct})
+            completed.append({
+                "side": "LONG",
+                "entry_date": buy_date,
+                "exit_date": dates[i],
+                "entry": buy_px,
+                "exit": px,
+                "quantity": buy_qty,
+                "quantity_left": 0.0,
+                "entry_reason": buy_reason,
+                "exit_reason": str(reasons[i] or "SELL_SIGNAL"),
+                "pnl_pct": pnl_pct,
+            })
             shares = 0.0
             position = "OUT"
-            buy_px, buy_date = None, None
+            buy_px, buy_date, buy_qty, buy_reason = None, None, 0.0, ""
             trades.append({"date": dates[i], "action": "SELL", "price": px, "shares": 0.0})
 
         pvals.append(cash + shares * px)
@@ -2664,7 +2717,18 @@ def run_backtest(signals_df: pd.DataFrame,
         px = float(prices[-1])
         cash = shares * px
         pnl_pct = (px / buy_px - 1.0) * 100 if buy_px else 0.0
-        completed.append({"buy_date": buy_date, "sell_date": dates[-1], "buy": buy_px, "sell": px, "pnl_pct": pnl_pct})
+        completed.append({
+            "side": "LONG",
+            "entry_date": buy_date,
+            "exit_date": dates[-1],
+            "entry": buy_px,
+            "exit": px,
+            "quantity": buy_qty,
+            "quantity_left": 0.0,
+            "entry_reason": buy_reason,
+            "exit_reason": "FORCED_CLOSE_END_OF_TEST",
+            "pnl_pct": pnl_pct,
+        })
         trades.append({"date": dates[-1], "action": "SELL (close)", "price": px, "shares": 0.0})
         shares = 0.0
         position = "OUT"
@@ -2724,8 +2788,8 @@ def run_backtest(signals_df: pd.DataFrame,
         else:
             profit_factor = 0.0
 
-    def rnd(x, nd=2):
-        return None if x is None or not np.isfinite(float(x)) else round(float(x), nd)
+    rnd = _round_finite
+    trade_details = _serialise_trade_details(completed, default_side="LONG")
 
     return {
         "total_return": rnd((pvals[-1] / initial_capital - 1) * 100, 2),
@@ -2748,6 +2812,7 @@ def run_backtest(signals_df: pd.DataFrame,
             {"date": str(d.date()), "strategy": round(float(v), 2), "bh": round(float(b), 2)}
             for d, v, b in zip(dates, pvals, bh)
         ],
+        "trade_details": trade_details,
     }
 
 
@@ -2789,6 +2854,7 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
             "status": "NO_DATA",
             "status_reason": "Backtest data unavailable",
             "portfolio_timeline": [],
+            "trade_details": [],
             "mode": "long_short",
         }
 
@@ -2819,12 +2885,14 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
             "status": "NO_DATA",
             "status_reason": "Backtest data unavailable",
             "portfolio_timeline": [],
+            "trade_details": [],
             "mode": "long_short",
         }
 
     prices = df[price_col].astype(float).to_numpy()
     signals = df.get("signal", pd.Series(["HOLD"] * len(df))).fillna("HOLD").astype(str).str.upper().to_numpy()
     dates = pd.to_datetime(df["date"].values)
+    reasons = df.get("trade_reason", pd.Series([""] * len(df))).fillna("").astype(str).to_numpy()
 
     buy_signals = int(np.sum(signals == "BUY"))
     sell_signals = int(np.sum(signals == "SELL"))
@@ -2836,6 +2904,8 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
     entry_px = None
     entry_date = None
     entry_equity = None
+    entry_reason = ""
+    entry_quantity = 0.0
     pvals, trades, completed = [], [], []
 
     def current_value(px: float) -> float:
@@ -2849,8 +2919,8 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
             return float(max(entry_equity * (2.0 - px / entry_px), 0.0))
         return float(equity)
 
-    def close_position(px: float, dt, action: str):
-        nonlocal equity, position, entry_px, entry_date, entry_equity, completed, trades
+    def close_position(px: float, dt, action: str, reason: str = ""):
+        nonlocal equity, position, entry_px, entry_date, entry_equity, entry_reason, entry_quantity, completed, trades
         if position == "CASH":
             return
         exit_value = current_value(px)
@@ -2864,6 +2934,10 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
             "exit_date": dt,
             "entry": entry_px,
             "exit": px,
+            "quantity": entry_quantity,
+            "quantity_left": 0.0,
+            "entry_reason": entry_reason,
+            "exit_reason": reason or action,
             "pnl_pct": pnl_pct,
         })
         trades.append({"date": dt, "action": action, "price": px, "side": position})
@@ -2872,13 +2946,17 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
         entry_px = None
         entry_date = None
         entry_equity = None
+        entry_reason = ""
+        entry_quantity = 0.0
 
-    def open_position(side: str, px: float, dt):
-        nonlocal position, entry_px, entry_date, entry_equity, trades, equity
+    def open_position(side: str, px: float, dt, reason: str = ""):
+        nonlocal position, entry_px, entry_date, entry_equity, entry_reason, entry_quantity, trades, equity
         position = side
         entry_px = px
         entry_date = dt
         entry_equity = equity
+        entry_reason = reason or ("BUY_SIGNAL" if side == "LONG" else "SELL_SHORT_SIGNAL")
+        entry_quantity = equity / px if px > 0 else 0.0
         trades.append({"date": dt, "action": "BUY" if side == "LONG" else "SELL_SHORT", "price": px, "side": side})
 
     for i, (px, sig) in enumerate(zip(prices, signals)):
@@ -2890,26 +2968,26 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
 
         if sig == "BUY":
             if position == "SHORT":
-                close_position(px, dt, "COVER_SHORT")
+                close_position(px, dt, "COVER_SHORT", str(reasons[i] or "REVERSE_SHORT_TO_LONG"))
             if position == "CASH":
-                open_position("LONG", px, dt)
+                open_position("LONG", px, dt, str(reasons[i] or "BUY_SIGNAL"))
         elif sig == "SELL":
             if position == "LONG":
-                close_position(px, dt, "SELL_LONG")
+                close_position(px, dt, "SELL_LONG", str(reasons[i] or "REVERSE_LONG_TO_SHORT"))
             if position == "CASH":
-                open_position("SHORT", px, dt)
+                open_position("SHORT", px, dt, str(reasons[i] or "SELL_SHORT_SIGNAL"))
         elif sig == "CASH":
             if position == "LONG":
-                close_position(px, dt, "SELL_LONG")
+                close_position(px, dt, "SELL_LONG", str(reasons[i] or "CASH_EXIT"))
             elif position == "SHORT":
-                close_position(px, dt, "COVER_SHORT")
+                close_position(px, dt, "COVER_SHORT", str(reasons[i] or "CASH_EXIT"))
 
         pvals.append(current_value(px))
 
     if position != "CASH":
         px = float(prices[-1])
         dt = dates[-1]
-        close_position(px, dt, "CLOSE_END")
+        close_position(px, dt, "CLOSE_END", "FORCED_CLOSE_END_OF_TEST")
         pvals[-1] = equity
 
     pvals = np.array(pvals, dtype=float)
@@ -2967,8 +3045,8 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
         else:
             profit_factor = 0.0
 
-    def rnd(x, nd=2):
-        return None if x is None or not np.isfinite(float(x)) else round(float(x), nd)
+    rnd = _round_finite
+    trade_details = _serialise_trade_details(completed, default_side="LONG")
 
     return {
         "total_return": rnd((pvals[-1] / initial_capital - 1) * 100, 2),
@@ -2996,6 +3074,7 @@ def run_long_short_backtest(signals_df: pd.DataFrame,
             {"date": str(d.date()), "strategy": round(float(v), 2), "bh": round(float(b), 2)}
             for d, v, b in zip(dates, pvals, bh)
         ],
+        "trade_details": trade_details,
     }
 
 # -- Background worker --
