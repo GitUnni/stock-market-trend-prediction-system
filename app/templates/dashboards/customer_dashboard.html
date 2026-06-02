@@ -4095,7 +4095,7 @@
                 <div class="example-query">market_cap > 100000 AND pe_ratio < 20</div>
                 <div style="font-size: 13px; color: #666; margin: 5px 0 15px 0;">Find large cap stocks with low P/E ratio</div>
                 
-                <div class="example-query">roe > 15 AND debt_to_equity < 1</div>
+                <div class="example-query">roe > 0.15 AND debt_to_equity < 1</div>
                 <div style="font-size: 13px; color: #666; margin: 5px 0 15px 0;">Find profitable stocks with low debt</div>
                 
                 <div class="example-query">dividend_yield > 0.03 AND beta < 1</div>
@@ -4375,6 +4375,10 @@
                                         <th>D/E</th>
                                         <th>Beta</th>
                                         <th>Sector</th>
+                                        <th>Current Ratio</th>
+                                        <th>EPS (₹)</th>
+                                        <th>Earnings Growth %</th>
+                                        <th>Profit Margin %</th>
                                     </tr>
                                 </thead>
                                 <tbody id="resultsTableBody">
@@ -4865,7 +4869,7 @@
         
         // Show loading
         resultsSection.classList.add('show');
-        resultsTableBody.innerHTML = '<tr><td colspan="11" class="loading-spinner">🔄 Screening stocks...</td></tr>';
+        resultsTableBody.innerHTML = '<tr><td colspan="15" class="loading-spinner">🔄 Screening stocks...</td></tr>';
         
         try {
             // Call real API
@@ -4878,7 +4882,7 @@
             const data = await response.json();
             
             if (data.results.length === 0) {
-                resultsTableBody.innerHTML = '<tr><td colspan="11" class="no-results">No stocks match your criteria</td></tr>';
+                resultsTableBody.innerHTML = '<tr><td colspan="15" class="no-results">No stocks match your criteria</td></tr>';
                 resultsCount.textContent = '0 stocks found';
             } else {
                 displayScreenerResults(data.results);
@@ -4887,7 +4891,7 @@
             }
         } catch (error) {
             console.error('Screener error:', error);
-            resultsTableBody.innerHTML = '<tr><td colspan="11" class="no-results">❌ Error running screener. Please check your query syntax.</td></tr>';
+            resultsTableBody.innerHTML = '<tr><td colspan="15" class="no-results">❌ Error running screener. Please check your query syntax.</td></tr>';
             showToast('error', 'Screener Error', 'Failed to run screening query');
         }
     }
@@ -4904,6 +4908,10 @@
             const de = stock.debt_to_equity ? stock.debt_to_equity.toFixed(2) : 'N/A';
             const beta = stock.beta ? stock.beta.toFixed(2) : 'N/A';
             const price = stock.current_price ? stock.current_price.toFixed(2) : 'N/A';
+            const currentRatio = stock.current_ratio != null ? stock.current_ratio.toFixed(2) : 'N/A';
+            const eps = stock.earnings_per_share != null ? stock.earnings_per_share.toFixed(2) : 'N/A';
+            const earningsGrowth = stock.earnings_growth != null ? (stock.earnings_growth * 100).toFixed(2) : 'N/A';
+            const profitMargin = stock.profit_margin != null ? (stock.profit_margin * 100).toFixed(2) : 'N/A';
             
             return `
                 <tr onclick="selectStockFromScreener('${stock.symbol}', '${stock.name}')">
@@ -4918,6 +4926,10 @@
                     <td>${de}</td>
                     <td>${beta}</td>
                     <td>${stock.sector || 'N/A'}</td>
+                    <td>${currentRatio}</td>
+                    <td>${eps}</td>
+                    <td>${earningsGrowth !== 'N/A' ? earningsGrowth + '%' : 'N/A'}</td>
+                    <td>${profitMargin !== 'N/A' ? profitMargin + '%' : 'N/A'}</td>
                 </tr>
             `;
         }).join('');
