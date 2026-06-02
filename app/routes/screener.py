@@ -1,3 +1,4 @@
+import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -6,6 +7,15 @@ from pydantic import BaseModel
 
 from app.deps import get_db
 from app import models
+
+
+def sanitize_float(value):
+    """Return None for inf/nan values that are not JSON-serialisable."""
+    if value is None:
+        return None
+    if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
+        return None
+    return value
 
 router = APIRouter(prefix="/api/screener", tags=["Screener"])
 
@@ -169,7 +179,7 @@ async def run_screener(
     - market_cap > 100000 AND pe_ratio < 20
     - price < 500 AND volume > 1000000
     - dividend_yield > 3 AND pe_ratio < 15
-    - roe > 15 AND debt_to_equity < 1
+    - roe > 0.15 AND debt_to_equity < 1
     
     Returns list of matching stocks with their metrics
     """
@@ -183,17 +193,21 @@ async def run_screener(
             formatted_results.append({
                 "symbol": metrics.symbol,
                 "name": stock_name,
-                "current_price": metrics.current_price,
-                "market_cap": metrics.market_cap,
-                "pe_ratio": metrics.pe_ratio,
-                "pb_ratio": metrics.pb_ratio,
-                "volume": metrics.volume,
-                "dividend_yield": metrics.dividend_yield,
-                "roe": metrics.return_on_equity,
-                "debt_to_equity": metrics.debt_to_equity,
-                "beta": metrics.beta,
+                "current_price": sanitize_float(metrics.current_price),
+                "market_cap": sanitize_float(metrics.market_cap),
+                "pe_ratio": sanitize_float(metrics.pe_ratio),
+                "pb_ratio": sanitize_float(metrics.pb_ratio),
+                "volume": sanitize_float(metrics.volume),
+                "dividend_yield": sanitize_float(metrics.dividend_yield),
+                "roe": sanitize_float(metrics.return_on_equity),
+                "debt_to_equity": sanitize_float(metrics.debt_to_equity),
+                "beta": sanitize_float(metrics.beta),
                 "sector": metrics.sector,
-                "industry": metrics.industry
+                "industry": metrics.industry,
+                "current_ratio": sanitize_float(metrics.current_ratio),
+                "earnings_growth": sanitize_float(metrics.earnings_growth),
+                "earnings_per_share": sanitize_float(metrics.earnings_per_share),
+                "profit_margin": sanitize_float(metrics.profit_margin),
             })
         
         return {
