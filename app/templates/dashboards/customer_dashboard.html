@@ -2124,6 +2124,90 @@
     .bt-status-pill.idle { background: #eef2f7; color: #59677c; }
     .bt-status-pill.warn { background: #fff3cd; color: #856404; }
 
+    .bt-trades-btn {
+        border: 0;
+        cursor: pointer;
+        font-family: inherit;
+    }
+
+    .bt-trades-btn:hover,
+    .bt-trades-btn:focus-visible {
+        outline: none;
+        filter: brightness(0.96);
+        box-shadow: 0 0 0 3px rgba(30,95,143,0.16);
+    }
+
+    .bt-trade-details-panel {
+        display: none;
+        margin-top: 12px;
+        border: 1px solid rgba(209,217,230,0.70);
+        border-radius: 12px;
+        background: rgba(255,255,255,0.60);
+        overflow: hidden;
+    }
+
+    .bt-trade-details-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background: rgba(236,240,243,0.82);
+        border-bottom: 1px solid rgba(209,217,230,0.62);
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+
+    .bt-trade-details-subtitle {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .bt-trade-details-close {
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.70);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-weight: 800;
+        width: 26px;
+        height: 26px;
+    }
+
+    .bt-trade-details-scroll { overflow-x: auto; }
+
+    .bt-trade-details-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        min-width: 980px;
+    }
+
+    .bt-trade-details-table th,
+    .bt-trade-details-table td {
+        padding: 9px 10px;
+        border-bottom: 1px solid rgba(209,217,230,0.42);
+        text-align: left;
+        color: var(--text-primary);
+    }
+
+    .bt-trade-details-table th {
+        color: var(--text-secondary);
+        background: rgba(248,250,253,0.76);
+        font-size: 11px;
+        white-space: nowrap;
+    }
+
+    .bt-trade-details-table .reason-cell {
+        color: var(--text-secondary);
+        font-size: 11px;
+        max-width: 220px;
+        white-space: normal;
+    }
+
     .bt-chart-note {
         display: none;
         margin: 8px 20px 0;
@@ -3771,6 +3855,34 @@
                                     </tr></thead>
                                     <tbody id="backtestTableBody"></tbody>
                                 </table>
+
+                                <div class="bt-trade-details-panel" id="backtestTradeDetailsPanel">
+                                    <div class="bt-trade-details-header">
+                                        <div>
+                                            <span id="backtestTradeDetailsTitle">Trade details</span>
+                                            <span class="bt-trade-details-subtitle" id="backtestTradeDetailsSubtitle">Click a model's trade count to inspect entries and exits.</span>
+                                        </div>
+                                        <button type="button" class="bt-trade-details-close" onclick="closeBacktestTradeDetails()" aria-label="Close trade details">×</button>
+                                    </div>
+                                    <div class="bt-trade-details-scroll">
+                                        <table class="bt-trade-details-table">
+                                            <thead><tr>
+                                                <th>#</th>
+                                                <th>Side</th>
+                                                <th>Entry Date</th>
+                                                <th>Entry Price</th>
+                                                <th>Entry Qty</th>
+                                                <th>Entry Reason</th>
+                                                <th>Exit Date</th>
+                                                <th>Exit Price</th>
+                                                <th>Qty Left</th>
+                                                <th>Exit Reason</th>
+                                                <th>P/L %</th>
+                                            </tr></thead>
+                                            <tbody id="backtestTradeDetailsBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
 
                                 <div class="predict-title-row" style="margin-top:18px;">
                                     <div class="predict-metrics-title">🧭 Signal Diagnostics</div>
@@ -6204,6 +6316,68 @@ function backtestMeaningCell(r, bh, mode = 'long_only') {
     return '<span class="bt-status-pill warn">Under B&H</span>';
 }
 
+function escapeBacktestHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function prettifyTradeReason(reason) {
+    if (!reason) return '—';
+    return String(reason).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function closeBacktestTradeDetails() {
+    const panel = document.getElementById('backtestTradeDetailsPanel');
+    if (panel) panel.style.display = 'none';
+}
+
+function showBacktestTradeDetails(modelKey, modelName) {
+    const panel = document.getElementById('backtestTradeDetailsPanel');
+    const title = document.getElementById('backtestTradeDetailsTitle');
+    const subtitle = document.getElementById('backtestTradeDetailsSubtitle');
+    const body = document.getElementById('backtestTradeDetailsBody');
+    if (!panel || !title || !subtitle || !body || !currentPredictionResult) return;
+
+    const payload = getBacktestPayload(currentPredictionResult);
+    const bt = payload.bt || {};
+    const row = bt[modelKey] || {};
+    const trades = Array.isArray(row.trade_details) ? row.trade_details : [];
+    const modeLabel = payload.mode === 'long_short' ? 'Advanced Hypothetical' : 'Trend Investor';
+
+    title.textContent = `${modelName} trade details`;
+    subtitle.textContent = `${modeLabel} mode • ${trades.length} completed trade${trades.length === 1 ? '' : 's'}`;
+
+    if (!trades.length) {
+        body.innerHTML = `<tr><td colspan="11" style="text-align:center;color:#9BA8C0;padding:14px;">No completed trade details are available for ${escapeBacktestHtml(modelName)} in this mode.</td></tr>`;
+    } else {
+        body.innerHTML = trades.map(t => {
+            const pnl = t.pnl_pct === null || t.pnl_pct === undefined || Number.isNaN(Number(t.pnl_pct)) ? null : Number(t.pnl_pct);
+            const pnlCls = pnl === null ? 'val-muted' : pnl >= 0 ? 'val-pos' : 'val-neg';
+            const fmtNum = (v, digits = 2) => (v === null || v === undefined || Number.isNaN(Number(v))) ? '—' : Number(v).toFixed(digits);
+            return `<tr>
+                <td>${escapeBacktestHtml(t.trade_no ?? '')}</td>
+                <td><strong>${escapeBacktestHtml(t.side || 'LONG')}</strong></td>
+                <td>${escapeBacktestHtml(t.entry_date || '—')}</td>
+                <td>₹${fmtNum(t.entry_price, 2)}</td>
+                <td>${fmtNum(t.quantity, 4)}</td>
+                <td class="reason-cell" title="${escapeBacktestHtml(t.entry_reason || '')}">${escapeBacktestHtml(prettifyTradeReason(t.entry_reason))}</td>
+                <td>${escapeBacktestHtml(t.exit_date || '—')}</td>
+                <td>₹${fmtNum(t.exit_price, 2)}</td>
+                <td>${fmtNum(t.quantity_left, 4)}</td>
+                <td class="reason-cell" title="${escapeBacktestHtml(t.exit_reason || '')}">${escapeBacktestHtml(prettifyTradeReason(t.exit_reason))}</td>
+                <td class="${pnlCls}">${pnl === null ? '—' : pnl.toFixed(2) + '%'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    panel.style.display = 'block';
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
 /* Backtest summary table */
 function renderBacktestTable(data) {
     const payload = getBacktestPayload(data);
@@ -6212,6 +6386,7 @@ function renderBacktestTable(data) {
     const isLS = mode === 'long_short';
     const tbody= document.getElementById('backtestTableBody');
     tbody.innerHTML = '';
+    closeBacktestTradeDetails();
     const bh = bt.buy_hold_return;
 
     const rows = [
@@ -6231,8 +6406,8 @@ function renderBacktestTable(data) {
         const tradesCell = nTrades === 0
             ? `<span class="bt-status-pill idle" title="${isLS ? 'No completed advanced hypothetical trade happened' : 'No completed BUY → SELL trade happened'}">No trades</span>`
             : nTrades < 3
-                ? `<span class="bt-status-pill warn" title="Only ${nTrades} completed trade(s). Too few for reliable statistics.">${nTrades} trade${nTrades === 1 ? '' : 's'}</span>`
-                : `<span class="bt-status-pill active">${nTrades} trades</span>`;
+                ? `<button type="button" class="bt-status-pill bt-trades-btn warn" title="Click to view ${name} trade entry/exit details. Only ${nTrades} completed trade(s), so statistics may be unreliable." onclick="showBacktestTradeDetails('${key}', '${name}')">${nTrades} trade${nTrades === 1 ? '' : 's'}</button>`
+                : `<button type="button" class="bt-status-pill bt-trades-btn active" title="Click to view ${name} trade entry/exit details" onclick="showBacktestTradeDetails('${key}', '${name}')">${nTrades} trades</button>`;
 
         const subParts = [];
         if (r.status_reason) subParts.push(r.status_reason);
