@@ -255,7 +255,7 @@ def analyse_trends(articles: list[Article]) -> tuple[str, str, str]:
 
     try:
         llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             temperature=0,
             max_tokens=400,
             groq_api_key=GROQ_API_KEY,

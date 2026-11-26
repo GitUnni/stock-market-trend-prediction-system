@@ -44,9 +44,9 @@ def call_groq(messages: list[dict], max_tokens: int = 1024) -> str:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "temperature": 0,
-        "max_tokens": max_tokens,
+        "max_completion_tokens": max_tokens,
         "messages": messages,
     }
     resp = req.post(
